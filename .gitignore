@@ -1,0 +1,29 @@
+# --- Secrets / credentials (NEVER commit) ---
+pat/
+*-token-secret.txt
+*.p8
+*.pem
+*.key
+*.der
+.env
+.env.*
+
+# --- Python env / caches ---
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# --- Source data (large / licensed - keep out of repo) ---
+source-data/
+HI-Small_*.csv
+HI-Small_*.txt
+*.csv
+
+# --- Logs / scratch ---
+*.log
+/tmp/
+
+# --- IDE / local metadata ---
+.snowflake/
+.DS_Store
