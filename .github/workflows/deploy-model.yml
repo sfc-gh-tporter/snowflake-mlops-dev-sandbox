@@ -1,0 +1,56 @@
+name: Promote model to production
+
+# Keyless dev -> prod model promotion gate.
+#
+# Governance: a data scientist (ML_DEV_ROLE) can NEVER run this against prod.
+# Promotion happens ONLY here, as the OIDC service user SVC_ML_DEPLOY, which is
+# the only identity that can write the prod registry. The `production` GitHub
+# environment adds a required-reviewer approval on top of RBAC.
+#
+# Auth is keyless (Workload Identity Federation / OIDC) - no private key or
+# password is stored in GitHub. The service user trusts GitHub's OIDC issuer
+# with SUBJECT = repo:<owner>/<repo>:environment:production (see setup/00_rbac.py).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dev_version:
+        description: "Dev model version to promote (e.g. V2). Blank = dev default."
+        required: false
+        default: ""
+
+permissions:
+  id-token: write   # required for GitHub to mint the OIDC token
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: production   # required-reviewer approval gate (configure in repo settings)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Installs Snowflake CLI and, with use-oidc, exports the WORKLOAD_IDENTITY
+      # env vars (SNOWFLAKE_AUTHENTICATOR / _WORKLOAD_IDENTITY_PROVIDER / _TOKEN / _AUDIENCE).
+      - uses: snowflakedb/snowflake-actions@v3
+        with:
+          use-oidc: true
+          cli-version: "3.16"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Promote dev model to prod (ML Job, service account only)
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}   # account identifier (a GitHub VARIABLE, not a credential)
+          SNOWFLAKE_USER: SVC_ML_DEPLOY
+          SNOWFLAKE_ROLE: ML_DEPLOY_SVC
+          SNOWFLAKE_WAREHOUSE: CORTEX_CODE_WH
+        run: |
+          python demo/03_submit_promote_job.py --dev-version "${{ github.event.inputs.dev_version || 'V2' }}"

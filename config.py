@@ -1,59 +1,96 @@
-"""Central configuration for the Real-Time Feature Store Fraud-Detection demo.
+"""Central configuration for the MLOps dev/prod demo (fraud/AML backdrop).
 
-All object names, file paths, and tunables live here so every setup/ and demo/
-script imports from one place. No secrets are stored in this file - the REST
-auth token is read from the SNOWFLAKE_PAT environment variable at runtime.
+Env-aware: set ML_ENV=dev|prod to resolve the database, schemas, and roles for
+the two-database topology:
+
+  ML_FRAUD_PRODUCTION   - prod data, prod feature store, prod model registry
+  ML_FRAUD_DEV_SANDBOX  - dev feature store, dev registry, experiments
+
+The dev sandbox reads prod data read-only; only the service account can write
+prod. All object names live here so every script imports from one place.
 """
 
 import os
 
-# --- Snowflake objects -------------------------------------------------------
-DATABASE = "FRAUD_RT_DEMO"
-RAW_SCHEMA = "RAW"
-CURATED_SCHEMA = "CURATED"
+# --- Environment -------------------------------------------------------------
+ML_ENV = os.environ.get("ML_ENV", "dev").strip().lower()
+if ML_ENV not in ("dev", "prod"):
+    raise ValueError(f"ML_ENV must be 'dev' or 'prod', got {ML_ENV!r}")
+
+# --- Databases (two-DB topology, one account) --------------------------------
+PROD_DATABASE = "ML_FRAUD_PRODUCTION"
+DEV_DATABASE = "ML_FRAUD_DEV_SANDBOX"
+DATABASE = PROD_DATABASE if ML_ENV == "prod" else DEV_DATABASE
+
+# --- Schemas -----------------------------------------------------------------
+RAW_SCHEMA = "RAW"                 # prod-only; dev reads prod RAW read-only
+CURATED_SCHEMA = "CURATED"         # holds the analytical base table (ABT)
 FEATURE_STORE_SCHEMA = "FEATURE_STORE"
+REGISTRY_SCHEMA = "ML"             # model registry lives here
+ANALYTICS_SCHEMA = "ANALYTICS"     # batch predictions (prod)
+EXPERIMENTS_SCHEMA = "EXPERIMENTS" # experiment tracking (dev)
+
 WAREHOUSE = "CORTEX_CODE_WH"
+INFERENCE_COMPUTE_POOL = "MLOPS_CPU_M_POOL"  # optional online path only
 
-# Compute pool reused for the real-time inference SPCS service.
-INFERENCE_COMPUTE_POOL = "MLOPS_CPU_M_POOL"
+# --- Roles / keyless CI-CD identity ------------------------------------------
+DEV_ROLE = "ML_DEV_ROLE"           # data scientist: full CRUD in dev, read prod
+DEPLOY_ROLE = "ML_DEPLOY_SVC"      # only role that can write prod
+DEPLOY_USER = "SVC_ML_DEPLOY"      # OIDC/WIF service user used by GitHub Actions
+AUTH_POLICY = "ML_DEPLOY_WIF_POLICY"
 
-# Feature Store producer/consumer database roles (created in setup 02).
-FS_PRODUCER_ROLE = "FS_PRODUCER_ROLE"
-FS_CONSUMER_ROLE = "FS_CONSUMER_ROLE"
+GITHUB_REPO = "sfc-gh-tporter/rt-feature-store-fraud-demo"
+GITHUB_DEPLOY_ENV = "production"
+OIDC_ISSUER = "https://token.actions.githubusercontent.com"
+OIDC_SUBJECT = f"repo:{GITHUB_REPO}:environment:{GITHUB_DEPLOY_ENV}"
 
-# --- Entity / feature views --------------------------------------------------
+# --- Entity / features -------------------------------------------------------
 ENTITY_NAME = "ACCOUNT"
 ENTITY_JOIN_KEY = "ACCOUNT_ID"
-
-FV_PROFILE = "ACCOUNT_PROFILE"        # batch online FV (slow-moving profile)
-FV_VELOCITY = "ACCOUNT_VELOCITY"      # stream FV (continuous time-windowed aggs)
-FV_REALTIME = "TXN_RISK_SIGNALS"      # real-time FV registered live in the demo
-FEATURE_GROUP = "FRAUD_FEATURES"      # bundle for training + single-call serving
+FEATURE_GROUP = "FRAUD_FEATURES"
 FV_VERSION = "V1"
+FV_PROFILE = "ACCOUNT_PROFILE"        # batch FV (default path)
+FV_VELOCITY = "ACCOUNT_VELOCITY"      # stream FV (optional online path)
+FV_REALTIME = "TXN_RISK_SIGNALS"      # real-time FV (optional online path)
+STREAM_SOURCE = "TRANSACTION_EVENTS"  # optional online path
 
-# Stream source name (must match the records POSTed to the Ingest API).
-STREAM_SOURCE = "TRANSACTION_EVENTS"
+# --- Analytical base table (the DS's selective transform output) -------------
+ABT_TABLE = "FRAUD_ABT"
 
-# --- Model / service ---------------------------------------------------------
+
+def abt_fqn(env: str = ML_ENV) -> str:
+    """Fully-qualified ABT name for the given env (dev or prod)."""
+    db = PROD_DATABASE if env == "prod" else DEV_DATABASE
+    return f"{db}.{CURATED_SCHEMA}.{ABT_TABLE}"
+
+
+ABT = abt_fqn(ML_ENV)
+
+# --- Model / registry / batch scoring ----------------------------------------
 MODEL_NAME = "AML_FRAUD_GBM"
-MODEL_VERSION = "V2"
-INFERENCE_SERVICE = "AML_FRAUD_RT_SERVICE"
+REGISTRY_DB = DATABASE                       # dev or prod registry
+PREDICTIONS = f"{PROD_DATABASE}.{ANALYTICS_SCHEMA}.PREDICTIONS"
+BATCH_TASK = f"{PROD_DATABASE}.{ANALYTICS_SCHEMA}.SCORE_BATCH_TASK"
+INFERENCE_SERVICE = "AML_FRAUD_RT_SERVICE"   # optional online path
 
-# --- Raw / curated tables ----------------------------------------------------
-TBL_TRANS = f"{DATABASE}.{RAW_SCHEMA}.TRANSACTIONS"
-TBL_ACCOUNTS = f"{DATABASE}.{RAW_SCHEMA}.ACCOUNTS"
-TBL_PATTERNS = f"{DATABASE}.{RAW_SCHEMA}.LAUNDERING_PATTERNS"   # reserved (Appendix A)
-TBL_ACCOUNT_HISTORY = f"{DATABASE}.{CURATED_SCHEMA}.ACCOUNT_HISTORY"
-TBL_TXN_SPINE = f"{DATABASE}.{CURATED_SCHEMA}.TXN_SPINE"
-STAGE_RAW = f"{DATABASE}.{RAW_SCHEMA}.RAW_STAGE"
+# --- ML Jobs (promotion runs as a server-side job on a compute pool) ---------
+JOB_COMPUTE_POOL = INFERENCE_COMPUTE_POOL
+JOB_PAYLOAD_STAGE = f"{PROD_DATABASE}.{REGISTRY_SCHEMA}.JOB_PAYLOAD"
+PYPI_EAI = "MLOPS_PYPI_ACCESS_INTEGRATION"
 
-# --- Source data files (currently in project root) ---------------------------
-# The 3 IBM AML HI-Small files. Loader reads from here.
+# --- Prod source tables (always in PROD; dev reads these) --------------------
+TBL_TRANS = f"{PROD_DATABASE}.{RAW_SCHEMA}.TRANSACTIONS"
+TBL_ACCOUNTS = f"{PROD_DATABASE}.{RAW_SCHEMA}.ACCOUNTS"
+TBL_PATTERNS = f"{PROD_DATABASE}.{RAW_SCHEMA}.LAUNDERING_PATTERNS"
+TBL_ACCOUNT_HISTORY = f"{PROD_DATABASE}.{CURATED_SCHEMA}.ACCOUNT_HISTORY"
+TBL_TXN_SPINE = f"{PROD_DATABASE}.{CURATED_SCHEMA}.TXN_SPINE"
+STAGE_RAW = f"{PROD_DATABASE}.{RAW_SCHEMA}.RAW_STAGE"
+
+# --- Source data files -------------------------------------------------------
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _resolve(name: str) -> str:
-    """Prefer source-data/ if the file was moved there, else project root."""
     in_srcdir = os.path.join(_PROJECT_ROOT, "source-data", name)
     in_root = os.path.join(_PROJECT_ROOT, name)
     return in_srcdir if os.path.exists(in_srcdir) else in_root
@@ -63,31 +100,17 @@ FILE_TRANS = _resolve("HI-Small_Trans.csv")
 FILE_ACCOUNTS = _resolve("HI-Small_accounts.csv")
 FILE_PATTERNS = _resolve("HI-Small_Patterns.txt")
 
-# --- Data handling constants -------------------------------------------------
-# "Marco quirk": transactions on/after this date are the trailing all-laundering
-# tail (final hops of in-flight chains after normal-traffic generation stopped).
-# Trim them so a chronological split can't leak the date as a predictor.
-TAIL_CUTOFF_DATE = "2022-09-11"
-
-# High-risk payment formats (used to derive IS_HIGH_RISK_FORMAT).
+# --- Data-handling constants -------------------------------------------------
+TAIL_CUTOFF_DATE = "2022-09-11"   # trim trailing all-laundering tail
 HIGH_RISK_FORMATS = ["Bitcoin", "Wire", "Cash"]
-
-# Negative downsampling cap for local XGBoost training (all positives kept).
-TRAIN_NEG_SAMPLE = 800_000
-
-# Chronological split fractions (applied within the clean Sep 1-10 window).
+TRAIN_NEG_SAMPLE = 400_000        # negatives sampled for training (all positives kept)
 SPLIT_TRAIN_FRAC = 0.60
-SPLIT_VAL_FRAC = 0.20  # remainder -> test
+SPLIT_VAL_FRAC = 0.20
 
 
-# --- REST auth ---------------------------------------------------------------
+# --- Optional REST auth (online path only) -----------------------------------
 def get_pat() -> str:
-    """Return the Programmatic Access Token for REST Ingest/Query/inference.
-
-    Resolution order:
-      1. SNOWFLAKE_PAT environment variable
-      2. A token file under ./pat/ matching *token-secret.txt (gitignored)
-    """
+    """PAT for the OPTIONAL online REST path. Not used by the batch demo."""
     pat = os.environ.get("SNOWFLAKE_PAT")
     if pat:
         return pat.strip()
@@ -98,17 +121,4 @@ def get_pat() -> str:
             tok = fh.read().strip()
         if tok:
             return tok
-    raise RuntimeError(
-        "No PAT found. Set SNOWFLAKE_PAT, or place the token file in ./pat/ "
-        "(e.g. pat/RT_FEATURE_STORE_DEMO_PAT-token-secret.txt)."
-    )
-
-
-# The Online Feature Store SDK reads the PAT from the SNOWFLAKE_PAT environment
-# variable (for online feature reads). Populate it from the token file on import
-# so SDK online reads and the REST scripts both work without manual export.
-if "SNOWFLAKE_PAT" not in os.environ:
-    try:
-        os.environ["SNOWFLAKE_PAT"] = get_pat()
-    except Exception:
-        pass
+    raise RuntimeError("No PAT found (only needed for the optional online path).")

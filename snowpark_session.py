@@ -221,6 +221,30 @@ def create_snowpark_session(connection_name: Optional[str] = None) -> Session:
     Returns:
         A connected Snowpark Session.
     """
+    # Inside an ML Job / SPCS: an active Snowpark session is already available.
+    try:
+        from snowflake.snowpark.context import get_active_session
+        return get_active_session()
+    except Exception:
+        pass
+
+    # CI / keyless path: GitHub Actions (snowflakedb/snowflake-actions, use-oidc)
+    # sets SNOWFLAKE_AUTHENTICATOR=WORKLOAD_IDENTITY plus the OIDC token env vars.
+    # Build the session straight from env - no connections.toml, no key pair.
+    if os.environ.get("SNOWFLAKE_AUTHENTICATOR", "").upper() == "WORKLOAD_IDENTITY":
+        cfg = {
+            "account": os.environ["SNOWFLAKE_ACCOUNT"],
+            "authenticator": "WORKLOAD_IDENTITY",
+            "role": os.environ.get("SNOWFLAKE_ROLE", "ML_DEPLOY_SVC"),
+            "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE", "CORTEX_CODE_WH"),
+        }
+        for k_env, k_cfg in (("SNOWFLAKE_USER", "user"),
+                             ("SNOWFLAKE_WORKLOAD_IDENTITY_PROVIDER", "workload_identity_provider"),
+                             ("SNOWFLAKE_TOKEN", "token")):
+            if os.environ.get(k_env):
+                cfg[k_cfg] = os.environ[k_env]
+        return Session.builder.configs(cfg).create()
+
     snowflake_home = Path(
         os.environ.get("SNOWFLAKE_HOME", "~/.snowflake")
     ).expanduser()

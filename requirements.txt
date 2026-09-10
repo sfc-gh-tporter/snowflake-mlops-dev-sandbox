@@ -1,0 +1,8 @@
+# Runtime deps for setup/mlops scripts and the CI promotion job.
+# Versions pinned to match the training environment (model load in promotion
+# requires the same major sklearn as when the model was logged).
+snowflake-ml-python==1.43.0
+snowflake-snowpark-python
+scikit-learn==1.7.2
+pandas==2.3.3
+numpy==2.2.6

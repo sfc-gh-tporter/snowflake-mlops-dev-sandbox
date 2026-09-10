@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="snowflake-source" content="cortex-agent-authored" />
+  <title>MLOps on Snowflake — Demo Guide</title>
+  <script type="application/json" id="snowflake-report-metadata">
+  {
+    "generated": "2026-09-10",
+    "intent": "Audience-facing anchor guide for the MLOps-on-Snowflake demo. On-screen reference shown to the room; objective, with a progressive pipeline diagram on each page.",
+    "sections": [
+      { "id": "overview", "title": "Overview" },
+      { "id": "dataset", "title": "The data" },
+      { "id": "environment", "title": "Environment" },
+      { "id": "explore", "title": "Explore & transform" },
+      { "id": "retrain", "title": "Retrain" },
+      { "id": "deploy", "title": "Deploy" },
+      { "id": "capabilities", "title": "Capabilities & docs" }
+    ]
+  }
+  </script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --navy: #1a6099; --blue: #29B5E8;
+      --ink:   light-dark(#3b4a54, #d7e1e8);
+      --head:  light-dark(#123a52, #eaf3f9);
+      --muted: light-dark(#7c8b95, #93a3ad);
+      --page:  light-dark(#fbfdff, #0e161d);
+      --panel: light-dark(#ffffff, #131d25);
+      --card:  light-dark(#ffffff, #16212b);
+      --border:light-dark(#eaf1f6, #26333d);
+      --soft:  light-dark(#f3f9fd, #14222d);
+      --link:  light-dark(#1c74ad, #6cc4ec);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+      margin: 0; color: var(--ink); background: var(--page);
+      line-height: 1.7; font-size: 16px;
+    }
+    header {
+      background: light-dark(#f4fafe, #12202b);
+      border-bottom: 1px solid var(--border);
+      padding: clamp(22px, 5vw, 34px) 0;
+    }
+    header h1 { margin: 0 0 6px; font-size: clamp(22px, 4vw, 30px); color: var(--head); font-weight: 650; }
+    header p { margin: 0; color: var(--muted); font-size: clamp(14px, 2.5vw, 17px); max-width: 62ch; }
+    .wrap { max-width: 960px; width: 100%; margin: 0 auto; padding: 0 clamp(16px, 5vw, 32px); }
+    nav {
+      position: sticky; top: 0; z-index: 5; background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex; flex-wrap: wrap; gap: 4px; padding: 10px clamp(10px, 5vw, 32px);
+    }
+    .tab {
+      appearance: none; border: none; background: transparent; color: var(--muted);
+      font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+      padding: 8px 14px; border-radius: 8px; white-space: nowrap;
+    }
+    .tab:hover { background: var(--soft); color: var(--navy); }
+    .tab.active { background: var(--navy); color: #fff; }
+    main { padding: clamp(22px, 4vw, 34px) 0 72px; }
+    section.page { display: none; }
+    section.page.active { display: block; animation: fade .18s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .kicker { color: var(--blue); font-weight: 700; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin: 0 0 4px; }
+    h2 { color: var(--head); font-size: clamp(20px, 3.6vw, 26px); margin: 0 0 8px; font-weight: 650; }
+    h3 { color: var(--navy); font-size: 13px; margin: 24px 0 6px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .lede { color: var(--muted); font-size: clamp(15px, 2.6vw, 18px); margin: 0 0 6px; max-width: 68ch; }
+    p, li { max-width: 74ch; }
+    a { color: var(--link); }
+    /* pipeline wireframe */
+    .pipeline { margin: 14px 0 22px; }
+    .pipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .pnode { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px;
+             border-radius: 999px; font-size: 13px; font-weight: 600;
+             border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
+    .pnode .pn { width: 18px; height: 18px; border-radius: 50%; display: inline-flex;
+                 align-items: center; justify-content: center; font-size: 11px; background: var(--soft); color: var(--muted); }
+    .pnode.done { color: var(--navy); border-color: light-dark(#c5e2f3, #2f4a5c); background: var(--soft); }
+    .pnode.done .pn { background: var(--navy); color: #fff; }
+    .pnode.active { background: var(--navy); color: #fff; border-color: var(--navy); box-shadow: 0 3px 10px rgba(26,96,153,.30); }
+    .pnode.active .pn { background: #fff; color: var(--navy); }
+    .pconn { color: var(--muted); opacity: .6; font-size: 12px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 16px 0; }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 15px 17px; }
+    .stat .n { color: var(--head); font-size: 20px; font-weight: 700; }
+    .stat .l { color: var(--muted); font-size: 14px; margin-top: 2px; }
+    .flow { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+    .step { flex: 1 1 200px; background: var(--card); border: 1px solid var(--border);
+            border-top: 3px solid var(--blue); border-radius: 12px; padding: 14px 16px; }
+    .step b { color: var(--head); display: block; margin-bottom: 3px; }
+    .step span { color: var(--muted); font-size: 14px; }
+    .key { border-left: 3px solid var(--navy); background: var(--soft);
+           padding: 12px 18px; border-radius: 0 10px 10px 0; margin: 18px 0; color: var(--head); }
+    .also { background: var(--soft); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 16px 0; }
+    .also b { color: var(--navy); }
+    .also .l { color: var(--muted); font-size: 13.5px; }
+    code { background: var(--soft); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 14px; }
+    .feat { margin: 12px 0; }
+    .feat .h { color: var(--head); font-weight: 650; }
+    .feat .d { color: var(--muted); font-size: 14.5px; }
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; font-size: 14px; vertical-align: top; }
+    th { color: var(--head); font-weight: 650; border-bottom: 2px solid var(--border); }
+    ul { margin: 8px 0; padding-left: 22px; } li { margin: 4px 0; }
+    .gate li { margin: 9px 0; } .gate b { color: var(--navy); }
+    .foot { color: var(--muted); font-size: 13px; margin-top: 32px; border-top: 1px solid var(--border); padding-top: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>MLOps on Snowflake</h1>
+      <p>A data-science team develops in a governed sandbox inside a production account, then ships a model through an automated, approved pipeline.</p>
+    </div>
+  </header>
+
+  <nav class="wrap" id="tabs" aria-label="Guide sections">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="dataset">The data</button>
+    <button class="tab" data-tab="environment">Environment</button>
+    <button class="tab" data-tab="explore">1 · Explore</button>
+    <button class="tab" data-tab="retrain">2 · Retrain</button>
+    <button class="tab" data-tab="deploy">3 · Deploy</button>
+    <button class="tab" data-tab="capabilities">Capabilities</button>
+  </nav>
+
+  <main class="wrap">
+
+    <!-- OVERVIEW -->
+    <section class="page active" id="overview" data-stage="">
+      <p class="kicker">Overview</p>
+      <h2>The lifecycle</h2>
+      <div class="pipeline"></div>
+      <p class="lede">A model moves left to right: explore production data and shape it into features, train and compare versions with tracked experiments, then promote the best one to production through a keyless, approved pipeline — after which it serves predictions on a schedule.</p>
+      <div class="flow">
+        <div class="step"><b>1 · Explore</b><span>Read production data, build a clean base table, and define the features the model will use.</span></div>
+        <div class="step"><b>2 · Retrain</b><span>Add a feature, retrain, log the run to an experiment, and compare the new version to the current one.</span></div>
+        <div class="step"><b>3 · Deploy</b><span>Promote the winning model to production through a gated CI/CD pipeline — no manual deploys.</span></div>
+      </div>
+      <div class="key">The governance boundary is on <b>deployment</b>: the sandbox can read all of production, but only an approved, automated service account can write to it.</div>
+    </section>
+
+    <!-- DATASET -->
+    <section class="page" id="dataset" data-stage="">
+      <p class="kicker">The data</p>
+      <h2>IBM AML — anti-money-laundering transactions</h2>
+      <div class="pipeline"></div>
+      <p class="lede">A labeled, multi-bank transaction dataset: money moving between accounts across many banks, with a small share flagged as laundering. It sits at the very start of the pipeline — the raw material every feature and model is derived from.</p>
+      <div class="stats">
+        <div class="stat"><div class="n">~5.08M</div><div class="l">transactions</div></div>
+        <div class="stat"><div class="n">~518K</div><div class="l">accounts across many banks</div></div>
+        <div class="stat"><div class="n">~0.089%</div><div class="l">labeled laundering</div></div>
+      </div>
+      <h3>What each record contains</h3>
+      <p>Every transaction has an amount, a paying and receiving currency, a payment format (ACH, wire, cheque, card, etc.), the sending and receiving accounts and their banks, and a timestamp. A binary <code>IS_LAUNDERING</code> flag marks the illicit ones, and a companion set describes the laundering <b>typologies</b> — fan-out (one account spraying funds to many), structuring (splitting a large sum into many small ones), and cycles (money routed in a loop back to its origin).</p>
+      <h3>Why it fits this use case</h3>
+      <p>Anti-money-laundering is fundamentally <b>rare-event detection</b>: only a tiny fraction of activity is illicit, and it hides inside enormous volumes of legitimate traffic — exactly the shape of this data. Because transactions span many banks and borders, the behaviors launderers create — bursts of activity, spreading funds across many receivers, mixing currencies — are actually observable in the data, which is what makes them learnable as features.</p>
+      <h3>How the model is measured</h3>
+      <p>With positives near 0.1%, accuracy is meaningless (a model that predicts "never" is 99.9% accurate and catches nothing). We use <b>PR-AUC</b> and <b>recall@1%</b> — the share of true laundering captured in the top 1% of scored transactions, which mirrors the limited alert budget an investigations team really works with. Training and evaluation use a <b>chronological split</b> (train on earlier activity, test on later), reflecting how the model scores the future in production.</p>
+    </section>
+
+    <!-- ENVIRONMENT -->
+    <section class="page" id="environment" data-stage="">
+      <p class="kicker">Environment</p>
+      <h2>A dev sandbox inside production</h2>
+      <div class="pipeline"></div>
+      <p class="lede">Two databases in one account. Role-based access control enforces the boundary between them — and that boundary is the backbone of the whole pipeline.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Role</th><th>In the sandbox</th><th>Read prod data</th><th>Write / deploy to prod</th></tr></thead>
+        <tbody>
+          <tr><td>Data scientist</td><td>Full control</td><td>Yes (read-only)</td><td>No</td></tr>
+          <tr><td>Deploy service account</td><td>—</td><td>Yes</td><td>Yes — the only role that can</td></tr>
+        </tbody>
+      </table></div>
+      <h3>The two databases</h3>
+      <ul>
+        <li><b>Production</b> — the production data, the production feature store, the production model registry, and the batch predictions table that downstream systems read.</li>
+        <li><b>Dev sandbox</b> — the data scientist's own feature store, model registry, and experiment tracking, where they can build and register freely without touching production.</li>
+      </ul>
+      <h3>Set up before today</h3>
+      <ul>
+        <li>Databases, schemas, roles, and the keyless deploy identity.</li>
+        <li>Production data loaded and curated into clean transaction events and per-account history.</li>
+        <li>The dev base table, the dev feature store, and a baseline model (V1) already registered in the dev registry.</li>
+      </ul>
+    </section>
+
+    <!-- EXPLORE -->
+    <section class="page" id="explore" data-stage="explore">
+      <p class="kicker">Step 1</p>
+      <h2>Explore &amp; transform</h2>
+      <div class="pipeline"></div>
+      <p class="lede">The data scientist's first move: rather than building features directly on raw tables, they explore production, then apply a <b>selective transform</b> that turns raw events into a clean, labeled <b>analytical base table</b>. Feature views — reusable, governed feature definitions — are built on top of it.</p>
+      <h3>On screen</h3>
+      <ul>
+        <li>A look at production data — for example, the laundering rate broken out by payment channel.</li>
+        <li>Building the base table from production: read-only on prod, written into the sandbox.</li>
+      </ul>
+      <h3>The features and what they capture</h3>
+      <div class="feat"><span class="h">Request context</span> <span class="d">— describes the transaction in front of us: the amount, whether it crosses currencies or borders, whether the payment format is high-risk, and how the amount compares to the account's own typical spend. These are the "what is happening right now" signals.</span></div>
+      <div class="feat"><span class="h">Account profile</span> <span class="d">— a behavioral fingerprint built from each account's history: its typical and maximum amounts, how volatile its spending is, and how many distinct receivers, banks, and countries it interacts with. A brand-new account with no history looks very different from an established one — which itself is a signal.</span></div>
+      <p>Because these are defined once in the <b>feature store</b>, the exact same feature logic is reused for training and for scoring — and the same transform runs later in production during promotion, so dev and prod build features identically.</p>
+      <div class="also"><b>Also on Snowflake (beyond this step):</b> <span class="l">the same feature store can serve features <em>online</em> for real-time scoring, and can generate point-in-time-correct training sets so a model only ever sees data that existed at each moment.</span></div>
+      <p><a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/overview">Snowflake Feature Store →</a></p>
+    </section>
+
+    <!-- RETRAIN -->
+    <section class="page" id="retrain" data-stage="train">
+      <p class="kicker">Step 2</p>
+      <h2>Add a feature, retrain, compare</h2>
+      <div class="pipeline"></div>
+      <p class="lede">The iteration loop: register a new feature view, retrain the model, log the run to an experiment, and compare the new version against the current baseline — all inside the sandbox.</p>
+      <h3>On screen</h3>
+      <ul>
+        <li>A new feature view registered from account history.</li>
+        <li>A retrain to V2, captured as an experiment run, with a printed V1 → V2 comparison.</li>
+      </ul>
+      <h3>The new signals — and why they matter</h3>
+      <div class="feat"><span class="h">Spend volatility</span> <span class="d">— how erratic an account's transaction amounts are relative to its own norm. A steady payer has low volatility; an account suddenly moving unusual amounts stands out.</span></div>
+      <div class="feat"><span class="h">Receiver fan-out</span> <span class="d">— the number of distinct receivers relative to how many transactions an account makes. An account spraying funds across many different destinations is the classic "mule" pattern in a fan-out typology. This feature is constrained so that more fan-out can only <em>raise</em> the risk score, never lower it.</span></div>
+      <h3>How the model works</h3>
+      <p>It's a gradient-boosted tree model, weighted to handle the extreme class imbalance, with <b>monotonic constraints</b> so that risk-increasing signals (amount, cross-border, fan-out, …) can only push the score up. Every run's parameters and metrics are recorded in <b>experiment tracking</b>, giving an auditable before/after: adding these two signals measurably improves the model (higher PR-AUC and recall@1%), and the winning version becomes the promotion candidate.</p>
+      <div class="also"><b>Also on Snowflake:</b> <span class="l">distributed training and hyperparameter tuning across a compute pool, and ongoing model monitoring / drift detection once a model is in production.</span></div>
+      <p>
+        <a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/model-registry/overview">Model Registry →</a> &nbsp;·&nbsp;
+        <a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/overview">Snowflake ML →</a>
+      </p>
+    </section>
+
+    <!-- DEPLOY -->
+    <section class="page" id="deploy" data-stage="promote">
+      <p class="kicker">Step 3</p>
+      <h2>Promote to production</h2>
+      <div class="pipeline"></div>
+      <p class="lede">Promotion is a packaged job that runs server-side as the service account, triggered through GitHub with a required approval. A data scientist cannot deploy by hand — the pipeline does it for them, under sign-off.</p>
+      <h3>What runs where</h3>
+      <div class="flow">
+        <div class="step"><b>GitHub Actions</b><span>Triggers the deploy, authenticates to Snowflake with a keyless token, waits for an approver, and submits the job.</span></div>
+        <div class="step"><b>Snowflake compute</b><span>An ML Job runs the promotion server-side on a compute pool, then tears itself down — disposable compute for a one-off task.</span></div>
+      </div>
+      <h3>The gate — all four apply</h3>
+      <ul class="gate">
+        <li><b>Access control</b> — only the service account can write production; the data scientist role is blocked by privileges.</li>
+        <li><b>Keyless identity</b> — GitHub mints a short-lived token that Snowflake accepts only from this repository's production context. There's no key or password stored to leak.</li>
+        <li><b>Human approval</b> — a designated reviewer must approve each deploy in GitHub before the job runs.</li>
+        <li><b>Auth policy</b> — the service account is restricted to workload-identity authentication only.</li>
+      </ul>
+      <h3>What promotion actually does</h3>
+      <ul>
+        <li>Rebuilds the production base table using the same transform written in dev (so features match exactly).</li>
+        <li>Promotes the exact trained model into the production registry — it ships the artifact, it does not retrain.</li>
+        <li>Registers the production feature views and creates the scheduled batch scoring task.</li>
+      </ul>
+      <div class="key">Promotion runs <b>once per release</b>. The recurring work is separate: a <b>daily scoring task</b> and <b>auto-refreshing feature views</b> keep producing predictions with no human and no job in the loop.</div>
+      <div class="also"><b>Also on Snowflake:</b> <span class="l">the same pattern extends to scheduled retraining pipelines and, when low latency is needed, real-time inference endpoints served from the online feature store.</span></div>
+      <p><a href="https://docs.snowflake.com/en/user-guide/workload-identity-federation">Workload Identity Federation →</a></p>
+    </section>
+
+    <!-- CAPABILITIES -->
+    <section class="page" id="capabilities" data-stage="serve">
+      <p class="kicker">Capabilities</p>
+      <h2>Native Snowflake, end to end</h2>
+      <div class="pipeline"></div>
+      <p class="lede">Everything in this demo is native to Snowflake — one governed platform from raw data to production predictions. Each capability below, with a note on what it enables.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Capability</th><th>What it enables</th><th>Docs</th></tr></thead>
+        <tbody>
+          <tr><td>Feature Store</td><td>Define features once as governed, versioned views; reuse them identically for training and scoring.</td><td><a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/overview">Feature Store</a></td></tr>
+          <tr><td>Model Registry</td><td>Version, govern, and set default models — with separate dev and prod registries.</td><td><a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/model-registry/overview">Model Registry</a></td></tr>
+          <tr><td>Experiment Tracking</td><td>Record parameters and metrics per run for reproducible, comparable model iterations.</td><td><a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/overview">Snowflake ML</a></td></tr>
+          <tr><td>ML Jobs</td><td>Run Python workloads server-side on compute pools — the deployment job here, or training at scale.</td><td><a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/overview">ML Jobs</a></td></tr>
+          <tr><td>Workload Identity Federation</td><td>Keyless CI/CD — external systems authenticate with short-lived tokens, no stored secrets.</td><td><a href="https://docs.snowflake.com/en/user-guide/workload-identity-federation">WIF</a></td></tr>
+          <tr><td>Scheduled Tasks</td><td>Run recurring work — like the daily batch scoring — on a cron schedule.</td><td><a href="https://docs.snowflake.com/en/user-guide/tasks-intro">Tasks</a></td></tr>
+          <tr><td>Dynamic Tables</td><td>Feature tables that refresh themselves automatically as new data lands.</td><td><a href="https://docs.snowflake.com/en/user-guide/dynamic-tables-about">Dynamic Tables</a></td></tr>
+        </tbody>
+      </table></div>
+      <h3>Beyond this demo</h3>
+      <p>The same platform also supports capabilities we're not showing today:</p>
+      <ul>
+        <li><b>Online / real-time serving</b> — a Postgres-backed online feature store with millisecond point lookups and sub-2-second stream freshness, for real-time scoring instead of scheduled batch.</li>
+        <li><b>Model monitoring &amp; drift</b> — track a model's performance and input drift over time once it's live in production.</li>
+        <li><b>Distributed training &amp; tuning</b> — train larger models and search hyperparameters across a compute pool.</li>
+        <li><b>Lineage</b> — trace a prediction back through model, features, and source data for audit and impact analysis.</li>
+      </ul>
+      <p class="foot">Anchor guide for the MLOps-on-Snowflake demo. Data: IBM AML (synthetic).</p>
+    </section>
+
+  </main>
+
+  <script>
+    (function () {
+      var STAGES = [
+        { k: 'explore',  l: 'Explore' },
+        { k: 'features', l: 'Feature store' },
+        { k: 'train',    l: 'Train & track' },
+        { k: 'promote',  l: 'Promote · gate' },
+        { k: 'serve',    l: 'Serve' }
+      ];
+      // Build the pipeline wireframe into every .pipeline host, per its page stage.
+      Array.prototype.forEach.call(document.querySelectorAll('.page'), function (pg) {
+        var host = pg.querySelector('.pipeline');
+        if (!host) return;
+        var stage = pg.getAttribute('data-stage') || '';
+        var ai = -1;
+        STAGES.forEach(function (s, i) { if (s.k === stage) ai = i; });
+        var pipe = document.createElement('div');
+        pipe.className = 'pipe';
+        STAGES.forEach(function (s, i) {
+          var state = ai < 0 ? '' : (i < ai ? 'done' : (i === ai ? 'active' : ''));
+          var node = document.createElement('span');
+          node.className = 'pnode' + (state ? ' ' + state : '');
+          var badge = document.createElement('span');
+          badge.className = 'pn';
+          badge.textContent = (state === 'done') ? '\u2713' : String(i + 1);
+          var label = document.createElement('span');
+          label.textContent = s.l;
+          node.appendChild(badge); node.appendChild(label);
+          pipe.appendChild(node);
+          if (i < STAGES.length - 1) {
+            var conn = document.createElement('span');
+            conn.className = 'pconn'; conn.textContent = '\u203A';
+            pipe.appendChild(conn);
+          }
+        });
+        host.appendChild(pipe);
+      });
+      // Tab switching.
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+      var pages = Array.prototype.slice.call(document.querySelectorAll('.page'));
+      function show(id) {
+        tabs.forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === id); });
+        pages.forEach(function (p) { p.classList.toggle('active', p.id === id); });
+        if (window.scrollTo) window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () { show(t.getAttribute('data-tab')); });
+      });
+    })();
+  </script>
+</body>
+</html>

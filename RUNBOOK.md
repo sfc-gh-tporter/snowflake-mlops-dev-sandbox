@@ -1,141 +1,294 @@
-# Presenter RUNBOOK - Real-Time Feature Store Fraud Demo
+# RUNBOOK — MLOps on Snowflake Demo (Presenter Guide)
 
-## The one-liner
-"Every incoming payment is scored for fraud in milliseconds, by combining a slow-moving
-account profile, fast-moving velocity features that update within two seconds of an event,
-and request-time signals computed at the moment of the transaction - all served from
-Snowflake's online feature store and a real-time inference endpoint."
+**The story you're telling:** how a data-science team runs a **dev ML sandbox inside a
+production Snowflake account** — reading production data, iterating on features and models
+with experiment tracking, and promoting to production through a **keyless, gated CI/CD
+pipeline** where a data scientist can *never* deploy to prod directly. Fraud / AML is the
+relatable backdrop; the subject is **Snowflake ML Ops**.
 
----
-
-## Demo flow (~15 min)  [VALIDATED END-TO-END]
-
-Prereqs each run: `export SNOWFLAKE_CONNECTION_NAME=demo156_keypair` (the PAT is read
-automatically from `pat/`). If the inference service auto-suspended (30 min idle), resume it:
-`ALTER SERVICE FRAUD_RT_DEMO.FEATURE_STORE.AML_FRAUD_RT_SERVICE RESUME;` (needs ACCOUNTADMIN
-or the granted pool usage). Use a FRESH new-account id each run so velocity starts at 0.
-
-### 1. Tour what already exists (pre-built)
-- `FRAUD_RT_DEMO.RAW` / `CURATED` - the IBM AML transactions, the accounts/bank/entity
-  dimension, and the curated `TXN_SPINE`. Call out the **multi-bank** angle: 86% of
-  transactions cross institutions.
-- Model Registry: `AML_FRAUD_GBM/V2` - monotonic-constrained gradient boosting (ROC-AUC 0.96).
-- Feature Store: the entity `ACCOUNT`, the `ACCOUNT_PROFILE` (batch online) and
-  `ACCOUNT_VELOCITY` (stream) feature views, and the `FRAUD_FEATURES` feature group.
-- The Postgres online service - the low-latency serving layer.
-
-### 2. Register the real-time feature view LIVE
-```
-.venv/bin/python demo/register_realtime_fv.py
-```
-Talk track: "Some features can't be precomputed - they depend on the transaction in front
-of you. This `TXN_RISK_SIGNALS` view runs a Python function at query time to compare the
-current amount against this account's historical average. It registers instantly, no
-infrastructure to provision."
-
-### 3. Establish a NORMAL baseline (low risk)
-```
-.venv/bin/python demo/score_transaction.py --account 012719_8019E5AE0 --scenario normal
-```
-An established account doing one ordinary ACH payment scores a **low risk (~0.3)**. (Scores are
-uncalibrated relative risk scores - see model notes.)
-
-### 4. Ingest a fan-out burst -> show freshness < 2s
-```
-.venv/bin/python demo/stream_events.py --mode fraud --account NEWMULE_$(date +%s) --count 40
-.venv/bin/python demo/query_features.py --account <that ACCOUNT_ID>
-```
-Talk track: "A brand-new account suddenly fans out to ~40 different banks - the single-account
-shadow of a mule / structuring pattern. Within ~2 seconds the velocity features (txn count,
-distinct banks in 24h) have already moved in the online store."
-
-### 5. Score it (the payoff)
-```
-.venv/bin/python demo/score_transaction.py --account <that ACCOUNT_ID> --scenario fraud
-```
-The same new account now scores **~0.94 fraud risk** in **~700-950 ms** end-to-end (online
-feature lookup + inference). Contrast with the 0.3 baseline: a clean, intuitive escalation
-driven entirely by the live velocity features.
+Audience framing: generic financial-services fraud/AML monitoring. Do not name the customer
+in anything on screen.
 
 ---
 
-## HOW TO TALK ABOUT THE MODEL (read this before presenting)
+## 0. Screen setup (three screens)
 
-**Lead with the right metrics.** Fraud is ~0.10% of transactions (about 1 in 981). Accuracy
-is meaningless here - a model that predicts "never fraud" is 99.9% accurate and catches zero
-fraud. We report **PR-AUC** and **recall@1%** (of all fraud, what share lands in the top 1%
-of scored transactions - how an alert queue actually works). Never quote accuracy.
+| Screen | Purpose |
+|--------|---------|
+| **Snowsight Workspace** (git-linked to the repo) | Primary. Open the dev notebook; browse Feature Store, Experiments, Model Registry, and the PREDICTIONS table in Snowsight. |
+| **Cortex Code (desktop)** | Show this build conversation + run the pre-built setup / live retrain / kickoff / reset from a local terminal. |
+| **GitHub** (repo + Actions) | Trigger the promotion workflow and approve the `production` environment (the human gate). |
 
-**Why the rate is so low is realistic.** Real banking fraud is rare; a 1-2% rate would be
-implausibly high. The extreme imbalance is handled with `scale_pos_weight` + negative
-downsampling, and honest time-based (chronological) train/test splitting.
+**Where things run — legend used below:**
+- **[TERM]** = local terminal in Cortex Code (`.venv` + `snow`/python). Runs the `.py` scripts.
+- **[WS]** = Snowsight Workspace notebook (git-linked repo).
+- **[UI]** = Snowsight browse (AI & ML / Data).
+- **[GH]** = GitHub (Actions tab).
 
-**Scores are uncalibrated relative risk scores.** Because we train on rebalanced (downsampled +
-weighted) data, the output is a *risk score*, not a calibrated probability - a normal txn sits
-around 0.3, fraud around 0.9. That's how production fraud scoring usually works (rank + threshold,
-not literal probability). If asked: we'd calibrate to the operating point for a real deployment.
+All [TERM] commands assume:
+```bash
+cd "RT Feature Store - Fraud Detection"
+export SNOWFLAKE_CONNECTION_NAME=demo156_keypair
+```
 
-**The model is monotonic-constrained (V2).** We enforce that more velocity / dispersion / amount /
-cross-border activity can only *increase* fraud risk. This removes counterintuitive boundaries and
-makes the model behave sensibly under probing (an earlier unconstrained version would lower the
-score when cross-currency was set - a red flag we fixed). ROC-AUC ~0.96 on the chronological test.
-
-**What it keys on (be ready for this).** The strong fraud signal is a sudden velocity / fan-out
-spike on a sparse-or-new account, via the ACH channel (in this dataset, modeled laundering is
-ACH-based structuring/layering - so ACH + many small-ish transfers to many banks is the
-learned signature, not high-value wires). This maps to new-account / mule fraud.
-
-**It's a demo-grade per-transaction model, by design.** The labels are *graph typologies*
-(see cheat-sheet) - multi-account network patterns. Our model scores one transaction for one
-account using that account's own profile + velocity. It catches the **single-account shadow**
-of these patterns (fan-out -> spike in distinct banks; structuring -> velocity; layering ->
-cross-currency) but cannot see the full multi-account graph. If asked "is this a
-state-of-the-art AML model?": no - SOTA AML uses graph ML; that's a natural **next chapter**
-(the dataset ships graph ground truth + a published GNN repo). The star here is the real-time
-serving architecture, which is production-real.
-
-**Training/serving honesty.** The model is trained on profile + velocity features. The
-live-registered `TXN_RISK_SIGNALS` real-time FV is shown as a request-time feature-engineering
-teaching artifact, not a model input - so registering it live needs no retrain.
-
-**The "Marco quirk" (if data is questioned).** HI-Small's transactions after ~Sep 10 are an
-artifact: the generator stopped producing normal background traffic while the trailing hops of
-in-flight laundering chains kept completing, so those days are ~60% fraud. We trim everything
-from Sep 11 onward so the date can't leak as a predictor, then split chronologically within
-Sep 1-10.
+> **During the live demo you never touch a terminal or Cortex Code.** Every live step is
+> [WS] (Workspace notebook), [UI] (Snowsight), or [GH] (GitHub). [TERM] is used only for
+> **pre-demo kickoff** and **post-demo reset** — off-stage. (Cortex Code is up only to *show*
+> this build conversation.)
 
 ---
 
-## APPENDIX B - Typology cheat-sheet
+## 1. Pre-demo kickoff (run ~5 minutes before)
 
-A *typology* is a named multi-account **graph shape** launderers use to break the link between
-money and crime. It is defined by relationships across accounts and time - not by any single
-transaction. Our per-account model sees only the single-account *shadow* (right column).
+The only thing we can't speed up live is the ML Job's compute-pool cold start. Pre-warm it:
 
-| Typology | Shape | Single-account shadow our model can see |
-|----------|-------|------------------------------------------|
-| **Fan-Out** | one account -> many recipients/banks | spike in distinct receiver banks/accounts in 24h |
-| **Fan-In** | many senders -> one collector | spike in inbound count/sum on the collector |
-| **Cycle** | A->B->...->A, returns toward origin | currency-hopping + round-trip / reciprocity flags |
-| **Scatter-Gather** | scatter to intermediaries, then gather to one | outbound dispersion then convergence; intermediary velocity |
-| **Gather-Scatter** | pool funds in, then redistribute out | inbound burst followed by outbound burst |
-| **Bipartite** | layer-A accounts only pay layer-B accounts | one-hop cross-bank volume mimicking commercial payments |
-| **Stack** | stacked/chained layers, large FX jumps | high-risk-format + large cross-currency amounts in chain steps |
-| **Random** | deliberately irregular multi-hop, small amounts | weak single-account signal (built to evade) -> needs a graph model |
+**[TERM]**
+```bash
+ML_ENV=dev .venv/bin/python pre_demo/kickoff.py            # resume + warm pool, readiness check
+# optional, if the container image may be cold:
+ML_ENV=dev .venv/bin/python pre_demo/kickoff.py --warm-image
+```
+Expect: pool `state=ACTIVE/IDLE nodes_ready=1`, dev ABT ~5,077,237 rows, dev model versions
+`['V1','V2']`, and a **GO**. Now the promotion job starts without a multi-minute cold start.
 
-Talking point: this is exactly why we engineered **distinct-bank / distinct-country dispersion**
-and **cross-currency / high-risk-format** features - the strongest single-account proxies for
-these shapes - and why capturing the full shapes is the job of a future graph-ML chapter.
+> **Two separate GitHub connections — don't conflate them:**
+> 1. **Workspace ↔ GitHub (git link):** lets Snowsight pull the repo. Configured on the
+>    Snowflake side with an API integration + a **Snowflake SECRET holding a GitHub PAT**.
+>    This is your connectivity task; it has nothing to do with the pipeline.
+> 2. **GitHub Actions → Snowflake (promotion pipeline):** **keyless (OIDC/WIF)** — no key,
+>    no password, no credential secret. The only value it needs is `SNOWFLAKE_ACCOUNT`, the
+>    account identifier, stored as a GitHub **variable** (not a credential). Plus the
+>    `production` environment for the approval gate.
 
 ---
 
-## APPENDIX A - Future model chapter (graph ML)
-The dataset ships `HI-Small_Patterns.txt` (8 typologies as connected subgraphs), the
-`accounts.csv` entity/bank dimension, and IBM's published Multi-GNN repo + NeurIPS paper.
-- Rung 1 (low effort): graph-derived tabular features (degree, fan-in/out ratios, distinct-bank
-  breadth, 2-hop "money comes back") fed into the *same* gradient-boosting model - served from this *same*
-  online feature store.
-- Rung 2: graph algorithms / embeddings (PageRank, Louvain, node2vec) via ML Jobs.
-- Rung 3: a true GNN (GraphSAGE / temporal GNN) on a GPU pool; HI/LI-Large for scale.
-Even GNNs precompute embeddings offline and serve them from the feature store - so a future
-graph chapter plugs into this same architecture.
+## 2. What's pre-built vs. live
+
+**Pre-built before the demo** (already done — the environment is standing):
+`setup/00_rbac.py` → `setup/01_load_data_prod.py` → `transforms/base_features.py`
+→ `setup/02_feature_store.py` → `setup/03_train_register.py --version V1`.
+
+**Run live during the demo:** the retrain loop (V2) and the promotion (via GitHub).
+
+If you ever need to rebuild from scratch, run the five pre-build steps in order (README has them).
+
+---
+
+## 3. Order of operations (the live demo)
+
+### Act 1 — The sandbox boundary (~2 min) [UI or TERM]
+Show the two databases and roles, then prove the boundary. In a Snowsight SQL worksheet:
+```sql
+USE ROLE ML_DEV_ROLE;
+SELECT COUNT(*) FROM ML_FRAUD_PRODUCTION.CURATED.TXN_EVENTS;   -- works: dev reads prod
+CREATE TABLE ML_FRAUD_PRODUCTION.FEATURE_STORE.X (a INT);      -- FAILS: dev cannot write prod
+```
+**Say:** dev has full *read* of prod (no masking needed — the point is process, not data). The
+enforced line is *deploy*. Only the service account can write prod, and only through CI.
+
+### Act 2 — The data scientist's first move (~3 min) [WS]
+Open `demo/01_explore_and_prep.ipynb`. Run the EDA cells (fraud rate by channel), then the
+cell that calls `build_abt(session, "dev")`.
+**Say:** the DS doesn't build features off raw prod — they apply a **selective transform** into
+a clean, labeled **analytical base table (ABT)** in their sandbox. The *same* transform is
+promoted to prod later (dev/prod parity).
+
+### Act 3 — Feature store + training + experiment tracking (~3 min) [UI]
+- **Feature Store** (AI & ML → Features): show `ACCOUNT_PROFILE` (+ `ACCOUNT_RISK` after Act 4).
+- **Experiments** (AI & ML → Experiments → `AML_FRAUD_TRAINING`): show the `TRAIN_V1` run's
+  params + metrics.
+- **Model Registry** (AI & ML → Models): show `AML_FRAUD_GBM` in the **dev** registry.
+**Say:** training reads the ABT + feature store, logs every run's params/metrics for
+reproducibility, and registers the model to the *dev* registry.
+
+### Act 4 — The MLOps loop: add a feature, retrain, compare (~3 min) [WS]
+Open `demo/02_add_feature_retrain.ipynb` in the Workspace and **run all cells**.
+It registers a **new** `ACCOUNT_RISK` feature view (spend volatility + receiver fan-out),
+retrains **V2**, logs a second experiment run, and prints the V1→V2 comparison (V2 wins).
+**Say:** this is the iteration loop — new signal → retrain → tracked comparison → V2 becomes the
+candidate (dev default). Refresh Experiments in [UI] to show `TRAIN_V1` vs `TRAIN_V2`.
+
+### Act 5 — The promotion gate (~4 min) [GH]
+This is the punchline. A data scientist **cannot** push V2 to prod. Go to **GitHub → Actions →
+"Promote model to production" → Run workflow** (input `V2`).
+- GitHub mints an **OIDC token** — no key/secret stored.
+- The `production` environment requires **your approval** (show the approval click).
+- The workflow authenticates as `SVC_ML_DEPLOY` and **submits an ML Job** that runs the
+  promotion **server-side** on the compute pool: builds the prod ABT with the same transform,
+  registers the prod feature store, promotes the model into the **prod** registry, and creates
+  the batch scoring task.
+
+Then in [UI]/[TERM] show the result:
+```sql
+SELECT COUNT(*) n,
+       ROUND(AVG(IFF(LABEL=1,FRAUD_SCORE,NULL)),3) avg_fraud,
+       ROUND(AVG(IFF(LABEL=0,FRAUD_SCORE,NULL)),3) avg_normal
+FROM ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS;   -- ~0.91 vs ~0.13
+```
+
+> Demo fallback: if GitHub connectivity/approval isn't ready, run the same promotion locally
+> from [TERM] — it exercises identical logic (runs the ML Job under `ML_DEPLOY_SVC`):
+> `ML_ENV=dev .venv/bin/python demo/03_submit_promote_job.py --dev-version V2`
+
+---
+
+## 4. Pitfalls & fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Promotion ML Job takes minutes to start | Compute-pool / image cold start | Run `demo_kickoff.py` (`--warm-image`) beforehand |
+| "compute pool busy (1/1 nodes)" | `MLOPS_CPU_M_POOL` is single-node; back-to-back jobs serialize | Only run one promotion at a time; or bump pool `MAX_NODES=2` before the demo |
+| GitHub Action can't auth | Missing `production` env or `SNOWFLAKE_ACCOUNT` variable (pipeline auth is keyless OIDC — no credential secret) | Add the `production` environment + a `SNOWFLAKE_ACCOUNT` **variable** in repo settings; SUBJECT in `SVC_ML_DEPLOY` must match `repo:sfc-gh-tporter/rt-feature-store-fraud-demo:environment:production` |
+| Model load fails "owner only" | `mv.load()` needs the owner (dev) role as *primary* | Already handled — `promote_model.py` switches to `ML_DEV_ROLE` for load, back to `ML_DEPLOY_SVC` to write |
+| "version V2 already existed" | Re-promoting an existing prod version | Already handled — promotion skips re-log if the prod version exists |
+| Experiment run won't resume | A run name already ended | Already handled — scripts `delete_run` before `start_run` |
+| Batch task didn't run | It's created **suspended** on purpose | For a live scored run: `EXECUTE TASK ML_FRAUD_PRODUCTION.ANALYTICS.SCORE_BATCH_TASK;` or `ALTER TASK ... RESUME` |
+| Online / Postgres cost worry | The optional online path (setup/online/) runs 24/7 | Not used in this demo. Never run it unless showing real-time; teardown covers it |
+
+**Note:** batch scoring uses **no PAT** — the SNOWFLAKE_PAT is only for the optional online REST path.
+
+---
+
+## 5. Reset (run after the demo)
+
+**[TERM]**
+```bash
+.venv/bin/python reset/teardown.py          # dry run (shows what it will drop)
+.venv/bin/python reset/teardown.py --yes    # execute
+```
+Drops **both** databases, the roles, the OIDC service user, and the auth policy; leaves the
+shared compute pool. Includes an orphaned-Postgres safety net (for the optional online path).
+The demo currently stands with minimal idle cost (a few daily-lag Dynamic Tables; batch task
+suspended; no Postgres online) — so you can leave it up between rehearsals if you prefer.
+
+---
+
+## 6. Deep-dive talking points (explain it like a data scientist)
+
+### The dataset — IBM AML HI-Small (synthetic)
+- ~5.08M transactions across ~518K accounts in a **multi-bank** ecosystem, with `IS_LAUNDERING`
+  labels and a companion file of injected laundering **typologies** (fan-out, structuring, cycles).
+- **Extreme class imbalance:** ~**0.089%** of transactions are laundering. This is realistic and
+  it dictates everything about how we model and measure.
+- **Synthetic on purpose:** the demo is about the *ML process*, not the data — so there's nothing
+  sensitive, which is exactly why dev gets full read access with no masking.
+- **Data hygiene:** we trim a trailing all-laundering tail ("Marco quirk") so a chronological
+  train/test split can't leak the date as a predictor.
+
+### The ML problem & why we measure it this way
+- Binary classification on a ~0.1% base rate. **Accuracy is useless** (predict "never fraud" =
+  99.9% accurate and catches nothing). We report **PR-AUC** and **recall@1%** (what share of
+  fraud we catch in the top 1% of scored transactions — the alert budget an investigations team
+  actually has).
+- **Chronological split** (train on earlier, test on later) — no look-ahead leakage, mirrors
+  production where you score the future.
+
+### The model
+- **HistGradientBoostingClassifier** (scikit-learn). Chosen over XGBoost deliberately: no native
+  `libomp` dependency, so it's portable and runs anywhere (including the ML Job runtime).
+- **Class imbalance** handled with `sample_weight` (positives weighted ~100:1).
+- **Monotonic constraints** (`monotonic_cst=+1`) on risk-increasing features: more amount /
+  cross-border / cross-currency / velocity / fan-out must never *decrease* the risk score. This
+  removes counterintuitive decision boundaries and makes the model behave sensibly for a probing
+  audience.
+- The output is an **uncalibrated relative risk score**, not a calibrated probability (we
+  rebalanced training). Frame it as "rank/triage risk," not "P(fraud)=x".
+
+### The signals / features (three groups)
+1. **Request-context** (per transaction, from the ABT): `AMOUNT_PAID`, `IS_CROSS_CURRENCY`,
+   `IS_CROSS_BORDER`, `IS_HIGH_RISK_FORMAT`, `AMOUNT_TO_AVG_RATIO`, and one-hot `PAYMENT_FORMAT`.
+2. **Account profile** (lifetime aggregates, `ACCOUNT_PROFILE` FV): average/stddev/max amount,
+   distinct receivers / receiver-banks / countries, foreign-currency share, high-risk-format share.
+3. **Engineered risk** (the V2 additions, `ACCOUNT_RISK` FV): `HIST_AMOUNT_CV` (spend volatility =
+   std/avg) and `HIST_RECEIVER_FANOUT` (distinct receivers / txn count). **Fan-out is the classic
+   money-laundering tell** — a mule spraying funds to many receivers — which is why adding it
+   lifts the model.
+- On "did it just learn ACH = fraud?": no. In this data ~99% of ACH is normal; the model learns
+  *velocity + dispersion + new-account* patterns, and the same channel with an established profile
+  scores low. (Feature importance / the V1→V2 delta backs this up.)
+
+### Why batch (default) and when online
+- **Batch** = a scheduled task scores recent events into `PREDICTIONS`. No standing infrastructure
+  → cheap, and it's how most AML monitoring actually runs (periodic scoring + case queue).
+- **Online** (Postgres-backed feature store + real-time REST + SPCS) exists under `setup/online/`
+  for sub-second scoring, but runs 24/7 and costs money — so it's opt-in, not part of this demo.
+
+### The Snowflake ML Ops capabilities on display
+- **Feature Store** — governed, reusable feature views (Dynamic Tables) over the ABT.
+- **Model Registry** — versioned models, per-env (dev vs prod) registries, default version.
+- **Experiment Tracking** — params + metrics per run, side-by-side comparison, reproducibility.
+- **ML Jobs** — the promotion runs as a **server-side job on a compute pool** (operationalized,
+  not a notebook); dependencies pinned via the job's `requirements.txt`.
+- **Keyless CI/CD (OIDC / Workload Identity Federation)** — GitHub's OIDC token is validated by
+  Snowflake directly; no key pair or secret stored. The modern replacement for key-pair service
+  accounts.
+- **RBAC governance** — the dev/prod boundary is enforced on *writes*: dev reads prod, only the
+  service account deploys, and a GitHub environment approval adds a human gate.
+
+---
+
+## 7. Likely questions (quick answers)
+- **"Is this real-time?"** Batch by default; the online/real-time path exists and is a config
+  switch, but it carries 24/7 cost so we don't run it here.
+- **"Can a data scientist just deploy?"** No — RBAC blocks dev from writing prod; only the OIDC
+  service account can, and only through the approved GitHub workflow.
+- **"Why synthetic data / no masking?"** The demo is about the ML process; the data isn't
+  sensitive, which lets us show the (more interesting) *deploy* governance instead of masking.
+- **"What did adding a feature actually buy?"** V1→V2: higher PR-AUC (~+0.03) and recall@1%
+  (~+0.02) — shown live in the experiment comparison.
+- **"What does promotion actually move?"** The exact trained artifact (loaded from dev, logged to
+  prod), plus the same transform + feature definitions, plus the batch scoring task.
+
+---
+
+## 8. Command & file reference
+
+| Purpose | Command |
+|---------|---------|
+| Pre-warm | `ML_ENV=dev python pre_demo/kickoff.py [--warm-image]` |
+| Build (fresh) | `00_rbac` (dev) → `01_load_data_prod` (prod) → `transforms/base_features` (dev) → `02_feature_store` (dev) → `03_train_register --version V1` (dev) |
+| Live retrain | Open `demo/02_add_feature_retrain.ipynb` in the Workspace → Run all |
+| Promote (GitHub) | Actions → "Promote model to production" → Run workflow (input `V2`) → approve |
+| Promote (local fallback) | `ML_ENV=dev python demo/03_submit_promote_job.py --dev-version V2` |
+| Reset | `python reset/teardown.py --yes` |
+
+Key objects: `ML_FRAUD_PRODUCTION`, `ML_FRAUD_DEV_SANDBOX`; roles `ML_DEV_ROLE`, `ML_DEPLOY_SVC`;
+service user `SVC_ML_DEPLOY` (OIDC); model `AML_FRAUD_GBM`; experiment `AML_FRAUD_TRAINING`;
+predictions `ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS`.
+
+---
+
+## Appendix B — Optional online / real-time branch
+
+**Only for showing real-time serving. It costs money (Postgres online store bills 24/7) and
+provisions slowly — never stand it up live.** The core MLOps story lands fully on batch; this is
+an add-on flourish.
+
+**Where it lives (three pieces):**
+- `setup/online/setup_online.py` — the build: Postgres online feature store + streaming velocity FV.
+- `pre_demo/enable_online.py` — **enable + verify**, run the **day before**.
+- `demo/optional_online_realtime.ipynb` — the optional **Act 6** notebook.
+
+**Enable (day before) [TERM]:**
+```bash
+ML_ENV=dev SNOWFLAKE_PAT=... .venv/bin/python pre_demo/enable_online.py --yes
+```
+Provisions the online service, polls until `RUNNING` (can take up to ~an hour), and does a
+smoke read. Leave it running until after the demo.
+
+**Notebook prerequisites (in the notebook's Service settings) [WS]:**
+- Container runtime; the online service `RUNNING`.
+- Attach an **External Access Integration** + a **PAT secret**; set `PAT_SECRET` in the notebook
+  to that secret's normalized path.
+
+**Act 6 (optional) [WS]:** open `demo/optional_online_realtime.ipynb`, Run all. It shows a
+**millisecond point lookup**, a live ingest burst with **sub-2s stream freshness**, and a
+**real-time score** off online-served features.
+
+**Teardown (mandatory to stop cost) [TERM]:** `python reset/teardown.py --yes` drops the online
+service (with an orphaned-Postgres safety net).
+
+> Note: this notebook is a **scaffold** built from the proven real-time patterns; rehearse it once
+> after enabling the online service, since it can't be validated until the service is up. The
+> batch model scores off profile/risk features; the velocity FV here demonstrates the online
+> store's streaming freshness (a fuller real-time model that consumes velocity is a further step).

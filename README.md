@@ -1,58 +1,104 @@
-# Real-Time Feature Store - Fraud / AML Transaction Monitoring Demo
+# MLOps on Snowflake — Dev Sandbox Inside a Production Account
 
-An end-to-end ML demo on Snowflake's **Online Feature Store (Postgres-backed, preview)**
-and **Real-Time Inference REST API**. Every incoming payment is scored for fraud / AML
-risk in milliseconds by combining three kinds of features:
+A demo of how a data-science team operates a **dev ML sandbox inside a production
+Snowflake account**: reading production data, iterating on features and models with
+experiment tracking, and promoting to production through a **keyless, gated CI/CD
+pipeline** — where a data scientist can *never* deploy to prod directly.
 
-| Feature type | Feature view | Example signals | Freshness |
-|---|---|---|---|
-| Slow-moving account profile | `ACCOUNT_PROFILE` (batch online) | lifetime avg/std amount, distinct receiver banks/countries, entity type | minutes |
-| Fast-moving velocity | `ACCOUNT_VELOCITY` (stream, continuous agg) | txn count 1h/24h, spend 24h/48h, **distinct banks 24h**, cross-currency & high-risk-format counts | < 2 sec |
-| Request-time signals | `TXN_RISK_SIGNALS` (real-time, registered live) | current amount vs. account average, z-score, cross-currency flag | per request |
+Fraud / anti-money-laundering (IBM AML HI-Small, synthetic) is the relatable backdrop,
+but the story is the **ML process**, not the model.
 
-The star is the **serving architecture** (online feature store + real-time inference),
-not the model. Generic financial-services framing.
+## The governance boundary (the point of the demo)
+- **Dev can read all prod data** — no masking, no cohort restriction. The data isn't sensitive; the message is about *process*.
+- **The enforced line is write/deploy to prod.** A data scientist (`ML_DEV_ROLE`) can do anything in the dev sandbox and read prod, but **cannot** write the prod feature store, registry, or predictions.
+- **Only the service account (`SVC_ML_DEPLOY`) deploys to prod**, and only through GitHub Actions using **OIDC / Workload Identity Federation** — no key pair, no stored secret. A GitHub `production` environment adds a human approval gate on top of RBAC.
 
-## Dataset
-IBM AML **HI-Small** (`HI-Small_Trans.csv`, `HI-Small_accounts.csv`, `HI-Small_Patterns.txt`)
-- 5,078,345 transactions across 518,581 accounts at thousands of banks (multi-bank ecosystem).
-- 0.10% laundering (extreme imbalance - see RUNBOOK for how to talk about metrics).
-- Sep 1-18 2022; the Sep-11+ "all-laundering tail" is trimmed (see RUNBOOK "Marco quirk").
-
-## Object inventory (all in `FRAUD_RT_DEMO`)
-- `RAW.TRANSACTIONS`, `RAW.ACCOUNTS`, `RAW.LAUNDERING_PATTERNS` (reserved for a future graph chapter)
-- `CURATED.BANK_DIM`, `ACCOUNT_DIM`, `TXN_EVENTS`, `ACCOUNT_HISTORY`, `TXN_SPINE`
-- `FEATURE_STORE`: entity `ACCOUNT`, FVs `ACCOUNT_PROFILE` / `ACCOUNT_VELOCITY` / `TXN_RISK_SIGNALS`,
-  feature group `FRAUD_FEATURES`, Postgres online service, model `AML_FRAUD_GBM`, service `AML_FRAUD_RT_SERVICE`
-
-## Prerequisites
-1. Python env: `.venv` (Python 3.10) with `snowflake-ml-python>=1.41`, scikit-learn, etc. (already created).
-2. **Connection (build steps):** `SNOWFLAKE_CONNECTION_NAME=demo156_keypair` — key-pair auth, non-interactive (no browser prompts). All `setup/*` and the FV-registration script use this.
-3. **PAT (live demo steps - REQUIRED):** the Online Feature Store read path and REST ingest/query/inference endpoints all require a Programmatic Access Token. Key-pair does NOT satisfy the online service; the SDK explicitly needs `SNOWFLAKE_PAT`.
-   ```
-   export SNOWFLAKE_PAT="<token>"
-   ```
-   Create in Snowsight: *Profile -> Settings -> Authentication -> Programmatic access tokens*.
-
-**Deployed inference endpoint:** `https://ey4lo-sfsenorthamerica-demo156.snowflakecomputing.app/predict`
-
-## Build order (pre-demo setup)
+## Topology (one account, two databases)
 ```
-export SNOWFLAKE_CONNECTION_NAME=demo156_keypair
-.venv/bin/python setup/01_load_data.py            # load + curate (idempotent)
-.venv/bin/python setup/02_feature_store.py        # FS + Postgres online service + FVs (slow: provisions PG)
-.venv/bin/python setup/03_train_register_model.py # point-in-time training set + HistGradientBoosting + registry
-.venv/bin/python setup/04_deploy_inference_service.py  # SPCS real-time inference endpoint
+ML_FRAUD_PRODUCTION          ML_FRAUD_DEV_SANDBOX
+  RAW / CURATED (prod data)    CURATED    (dev ABT)
+  CURATED.FRAUD_ABT (prod)     FEATURE_STORE (dev FVs)
+  FEATURE_STORE (prod FVs)     ML         (dev registry)
+  ML (prod registry)           EXPERIMENTS (tracking)
+  ANALYTICS.PREDICTIONS
 ```
 
-## Live demo
+Roles: `ML_DEV_ROLE` (data scientist, read prod / full dev), `ML_DEPLOY_SVC` (only role
+that writes prod), `SVC_ML_DEPLOY` (OIDC service user for CI).
+
+## The lineage the demo tells
 ```
-export SNOWFLAKE_CONNECTION_NAME=demo156_keypair
-export SNOWFLAKE_PAT="<token>"      # REQUIRED for all online reads + REST below
-.venv/bin/python demo/register_realtime_fv.py                       # register the real-time FV live
-.venv/bin/python demo/stream_events.py --mode fraud --account <ID>  # fan-out velocity burst
-.venv/bin/python demo/query_features.py --account <ID>              # prove <2s freshness
-.venv/bin/python demo/score_transaction.py --account <ID> --scenario fraud  # score + latency
+prod RAW ─▶ selective transform ─▶ ABT ─▶ feature views ─▶ train ─▶ experiment ─▶ (Git gate) ─▶ prod
 ```
 
-See **RUNBOOK.md** for the presenter script, how to talk about the model, and the typology cheat-sheet.
+## Repository layout (organized by *when you run it*)
+```
+config.py, snowpark_session.py, requirements.txt   shared
+transforms/base_features.py                          shared module (imported)
+setup/     one-time build (done once): 00_rbac, 01_load_data_prod,
+           02_feature_store, 03_train_register, online/ (optional)
+pre_demo/  kickoff.py            run ~5 min before presenting (pre-warm + readiness)
+           enable_online.py      OPTIONAL: enable the online store the day before (costs 24/7)
+demo/      what you run LIVE, in order:
+             01_explore_and_prep.ipynb    Act 2 - DS notebook
+             02_add_feature_retrain.ipynb  Act 4 - retrain V2 (notebook)
+             03_submit_promote_job.py      Act 5 - promote (also run by GitHub)
+             promote_model.py              ML Job payload (not run directly)
+             optional_online_realtime.ipynb  OPTIONAL Act 6 - real-time serving
+reset/     teardown.py           full teardown of both DBs + roles + service user
+```
+
+## Files
+| Path | What |
+|------|------|
+| `config.py` | Env-aware config (`ML_ENV=dev\|prod`) — DBs, schemas, roles, names |
+| `setup/00_rbac.py` | Two DBs, roles, OIDC service user + auth policy, grants; verifies the boundary |
+| `setup/01_load_data_prod.py` | Loads IBM AML data into `ML_FRAUD_PRODUCTION` (clean prod data) |
+| `transforms/base_features.py` | The DS's **selective transform**: prod → `FRAUD_ABT` (env-aware, promotable) |
+| `demo/01_explore_and_prep.ipynb` | DS first action: explore prod, build the dev ABT |
+| `setup/02_feature_store.py` | Env-aware **batch** feature store over the ABT (online path is optional) |
+| `setup/03_train_register.py` | Dev training + experiment tracking + dev registry |
+| `demo/02_add_feature_retrain.ipynb` | The loop (notebook): add a feature view → retrain V2 → compare |
+| `demo/03_submit_promote_job.py` | Submits the promotion as a server-side ML Job (run by GitHub or locally) |
+| `demo/promote_model.py` | Service-account promotion payload: dev → prod registry + batch scoring task |
+| `pre_demo/kickoff.py` | Pre-warm the compute pool + warehouse + readiness check |
+| `.github/workflows/deploy-model.yml` | Keyless (OIDC) promotion gate with `production` approval |
+| `setup/online/` | **Optional** Postgres online / real-time path (24/7 cost) — not the demo |
+| `pre_demo/enable_online.py` | **Optional**: enable + verify the online store (run the day before) |
+| `demo/optional_online_realtime.ipynb` | **Optional** Act 6: real-time serving on the online store |
+| `reset/teardown.py` | Full teardown of both DBs, roles, service user, policy |
+
+## Setup order
+```bash
+# 1. RBAC + topology (as admin)
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/00_rbac.py
+# 2. Prod data
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=prod python setup/01_load_data_prod.py
+# 3. DS transform -> dev ABT (as ML_DEV_ROLE)
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python transforms/base_features.py
+# 4. Dev batch feature store
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/02_feature_store.py
+# 5. Train + track + register (dev)
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/03_train_register.py --version V1
+```
+
+## The MLOps demo
+- **Retrain (dev):** open `demo/02_add_feature_retrain.ipynb` in a Snowsight Workspace and
+  run all cells — adds the `ACCOUNT_RISK` feature view, retrains V2, logs the experiment run,
+  and compares V1 → V2.
+- **Promote (dev → prod):** trigger the **GitHub Actions** workflow ("Promote model to
+  production") and approve the `production` environment. It submits an **ML Job** that runs
+  the promotion server-side as `ML_DEPLOY_SVC`. Local fallback (off-stage):
+  `SNOWFLAKE_CONNECTION_NAME=demo156_keypair python demo/03_submit_promote_job.py --dev-version V2`
+
+Batch predictions land in `ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS`, refreshed by the
+scheduled task `SCORE_BATCH_TASK` (created suspended; resume to enable daily scoring).
+
+## Teardown (stop all cost)
+```bash
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair python reset/teardown.py         # dry run
+SNOWFLAKE_CONNECTION_NAME=demo156_keypair python reset/teardown.py --yes   # execute
+```
+
+See `RUNBOOK.md` for the presenter talk track. The Snowflake real-time / online serving
+build (Postgres online store + REST + SPCS) lives in git history and under `setup/online/`.
