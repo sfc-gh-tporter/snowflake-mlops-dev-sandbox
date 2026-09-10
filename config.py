@@ -45,7 +45,7 @@ AUTH_POLICY = "ML_DEPLOY_WIF_POLICY"
 GITHUB_REPO = (
     os.environ.get("GITHUB_REPO")
     or os.environ.get("GITHUB_REPOSITORY")  # auto-set by GitHub Actions
-    or "sfc-gh-tporter/rt-feature-store-fraud-demo"
+    or "sfc-gh-tporter/snowflake-mlops-dev-sandbox"
 )
 GITHUB_DEPLOY_ENV = "production"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
