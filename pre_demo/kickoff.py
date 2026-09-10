@@ -9,8 +9,10 @@ Speeds up the things we can't speed up live:
   * Readiness check: confirms dev ABT, dev model V2, and (if promoted) prod
     predictions are present.
 
-  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/demo_kickoff.py
-  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/demo_kickoff.py --warm-image
+Runs from a terminal or a Snowsight Workspace (Python cell / worksheet).
+
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python pre_demo/kickoff.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python pre_demo/kickoff.py --warm-image
 """
 
 import argparse
@@ -18,7 +20,13 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# __file__ is undefined in a Snowsight Workspace / notebook cell; fall back to cwd.
+try:
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+except NameError:
+    _ROOT = os.getcwd()
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 import config as C
 from snowpark_session import create_snowpark_session
 
@@ -33,7 +41,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--warm-image", action="store_true",
                     help="also submit a trivial ML Job to cache the container image")
-    args = ap.parse_args()
+    # parse_known_args (not parse_args) so a notebook kernel's own argv
+    # (e.g. -f .../kernel.json) doesn't crash the script in a Workspace.
+    args, _ = ap.parse_known_args()
 
     s = create_snowpark_session()
     s.sql("USE ROLE ACCOUNTADMIN").collect()
