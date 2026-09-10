@@ -7,7 +7,7 @@ Tear it down afterwards with reset/teardown.py.
 
 Guarded: prints a cost warning and only provisions with --yes.
 
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev SNOWFLAKE_PAT=... \
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev SNOWFLAKE_PAT=... \
     .venv/bin/python pre_demo/enable_online.py --yes
 """
 

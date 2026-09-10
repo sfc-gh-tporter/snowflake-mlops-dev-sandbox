@@ -11,7 +11,7 @@ here - that is the data scientist's selective transform (transforms/base_feature
 Phase 3), authored in the dev sandbox reading this prod data.
 
 Run as an admin, targeting prod:
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=prod .venv/bin/python setup/01_load_data_prod.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=prod .venv/bin/python setup/01_load_data_prod.py
 """
 
 import os

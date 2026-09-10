@@ -9,8 +9,8 @@ Speeds up the things we can't speed up live:
   * Readiness check: confirms dev ABT, dev model V2, and (if promoted) prod
     predictions are present.
 
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python setup/demo_kickoff.py
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python setup/demo_kickoff.py --warm-image
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/demo_kickoff.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/demo_kickoff.py --warm-image
 """
 
 import argparse

@@ -10,7 +10,7 @@ real-time serving story, and tear it down afterwards.
 
 ## Enable
 ```
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev SNOWFLAKE_PAT=... \
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev SNOWFLAKE_PAT=... \
   .venv/bin/python setup/online/setup_online.py
 ```
 Requirements:

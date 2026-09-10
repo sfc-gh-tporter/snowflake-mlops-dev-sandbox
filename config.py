@@ -30,7 +30,7 @@ REGISTRY_SCHEMA = "ML"             # model registry lives here
 ANALYTICS_SCHEMA = "ANALYTICS"     # batch predictions (prod)
 EXPERIMENTS_SCHEMA = "EXPERIMENTS" # experiment tracking (dev)
 
-WAREHOUSE = "CORTEX_CODE_WH"
+WAREHOUSE = os.environ.get("SNOWFLAKE_WAREHOUSE", "CORTEX_CODE_WH")
 INFERENCE_COMPUTE_POOL = "MLOPS_CPU_M_POOL"  # optional online path only
 
 # --- Roles / keyless CI-CD identity ------------------------------------------
@@ -39,7 +39,14 @@ DEPLOY_ROLE = "ML_DEPLOY_SVC"      # only role that can write prod
 DEPLOY_USER = "SVC_ML_DEPLOY"      # OIDC/WIF service user used by GitHub Actions
 AUTH_POLICY = "ML_DEPLOY_WIF_POLICY"
 
-GITHUB_REPO = "sfc-gh-tporter/rt-feature-store-fraud-demo"
+# Repo that owns the keyless deploy identity. Auto-detects the fork in CI
+# (GitHub sets GITHUB_REPOSITORY); set GITHUB_REPO locally before running
+# setup/00_rbac.py so the OIDC trust points at your own fork.
+GITHUB_REPO = (
+    os.environ.get("GITHUB_REPO")
+    or os.environ.get("GITHUB_REPOSITORY")  # auto-set by GitHub Actions
+    or "sfc-gh-tporter/rt-feature-store-fraud-demo"
+)
 GITHUB_DEPLOY_ENV = "production"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 OIDC_SUBJECT = f"repo:{GITHUB_REPO}:environment:{GITHUB_DEPLOY_ENV}"

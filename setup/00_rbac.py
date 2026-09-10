@@ -7,7 +7,7 @@ do anything in the dev sandbox, but CANNOT write prod. Only the service account
 can deploy to prod.
 
 Run as an admin (script elevates to ACCOUNTADMIN):
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python setup/00_rbac.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/00_rbac.py
 """
 
 import os

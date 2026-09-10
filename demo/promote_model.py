@@ -13,7 +13,7 @@ Steps (all in prod):
      events into ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS (native SQL inference).
 
 Local dry-run (as an admin holding ML_DEPLOY_SVC):
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python mlops/promote_model.py --dev-version V2
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python mlops/promote_model.py --dev-version V2
 In CI the role/identity is provided by OIDC; pass --dev-version (or use default).
 """
 

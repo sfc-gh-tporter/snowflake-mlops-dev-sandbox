@@ -6,7 +6,7 @@ demo account. See setup/online/README.md. Tear down with setup/99_reset_teardown
 Env-aware: builds the online service in the current ML_ENV's feature store,
 backfilling the velocity stream FV from prod CURATED.TXN_EVENTS.
 
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev SNOWFLAKE_PAT=... \
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev SNOWFLAKE_PAT=... \
     .venv/bin/python setup/online/setup_online.py
 """
 

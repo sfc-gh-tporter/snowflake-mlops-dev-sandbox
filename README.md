@@ -68,18 +68,43 @@ reset/     teardown.py           full teardown of both DBs + roles + service use
 | `demo/optional_online_realtime.ipynb` | **Optional** Act 6: real-time serving on the online store |
 | `reset/teardown.py` | Full teardown of both DBs, roles, service user, policy |
 
+## Fork & run this yourself
+This repo is a self-contained reference — fork it and stand it up in your own Snowflake
+account. Nothing here is a secret (keyless OIDC, `.gitignore` covers keys/data), and the
+deploy workflow triggers on `workflow_dispatch` only, so it's safe to make public.
+
+Three values are account/repo-specific; everything else is created by `setup/`:
+
+1. **Repo identity** — `config.py` reads `GITHUB_REPO` from the environment. In GitHub
+   Actions it's auto-detected (`GITHUB_REPOSITORY`). Running `setup/` locally, set it so the
+   OIDC trust points at *your* fork: `export GITHUB_REPO=your-org/your-repo`.
+2. **Snowflake account** — set repo **variable** `SNOWFLAKE_ACCOUNT` (Settings → Secrets and
+   variables → Actions → Variables). It's an identifier, not a credential.
+3. **Warehouse** — set repo **variable** `SNOWFLAKE_WAREHOUSE` (and `WAREHOUSE`/env locally).
+   The live Workspace notebooks (`demo/*.ipynb`) also pin `CORTEX_CODE_WH` in their first
+   setup cell — change that to your warehouse when you open them.
+
+Then:
+- **In Snowflake:** run `setup/00_rbac.py` (creates both DBs, roles, and the `SVC_ML_DEPLOY`
+  OIDC user bound to your repo), then the rest of the setup order below.
+- **In GitHub:** create a `production` **environment** and add a required reviewer — this is
+  the human approval gate on every deploy.
+- **Workspace link (optional):** link a Snowsight Workspace to your fork to view/pull the code.
+  A private fork needs a **read-only** GitHub PAT stored as a Snowflake secret; a public fork
+  needs none. You won't commit from the Workspace, so read-only scope is enough.
+
 ## Setup order
 ```bash
 # 1. RBAC + topology (as admin)
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/00_rbac.py
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev  python setup/00_rbac.py
 # 2. Prod data
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=prod python setup/01_load_data_prod.py
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=prod python setup/01_load_data_prod.py
 # 3. DS transform -> dev ABT (as ML_DEV_ROLE)
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python transforms/base_features.py
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev  python transforms/base_features.py
 # 4. Dev batch feature store
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/02_feature_store.py
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev  python setup/02_feature_store.py
 # 5. Train + track + register (dev)
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/03_train_register.py --version V1
+SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev  python setup/03_train_register.py --version V1
 ```
 
 ## The MLOps demo
@@ -89,15 +114,15 @@ SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  python setup/03_train_regi
 - **Promote (dev → prod):** trigger the **GitHub Actions** workflow ("Promote model to
   production") and approve the `production` environment. It submits an **ML Job** that runs
   the promotion server-side as `ML_DEPLOY_SVC`. Local fallback (off-stage):
-  `SNOWFLAKE_CONNECTION_NAME=demo156_keypair python demo/03_submit_promote_job.py --dev-version V2`
+  `SNOWFLAKE_CONNECTION_NAME=<your-connection> python demo/03_submit_promote_job.py --dev-version V2`
 
 Batch predictions land in `ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS`, refreshed by the
 scheduled task `SCORE_BATCH_TASK` (created suspended; resume to enable daily scoring).
 
 ## Teardown (stop all cost)
 ```bash
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair python reset/teardown.py         # dry run
-SNOWFLAKE_CONNECTION_NAME=demo156_keypair python reset/teardown.py --yes   # execute
+SNOWFLAKE_CONNECTION_NAME=<your-connection> python reset/teardown.py         # dry run
+SNOWFLAKE_CONNECTION_NAME=<your-connection> python reset/teardown.py --yes   # execute
 ```
 
 See `RUNBOOK.md` for the presenter talk track. The Snowflake real-time / online serving

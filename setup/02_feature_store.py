@@ -8,7 +8,7 @@ The optional real-time/online path (Postgres online store + stream/real-time FVs
 + SPCS service) lives under setup/online/ and is run only on demand.
 
 Run (dev):
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev .venv/bin/python setup/02_feature_store.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev .venv/bin/python setup/02_feature_store.py
 """
 
 import os

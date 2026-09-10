@@ -9,7 +9,7 @@
 Everything runs as ML_DEV_ROLE - the data scientist can do all of this in dev,
 but cannot touch prod.
 
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev .venv/bin/python setup/03_train_register.py [--version V1]
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev .venv/bin/python setup/03_train_register.py [--version V1]
 """
 
 import argparse

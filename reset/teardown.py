@@ -8,8 +8,8 @@ orphaned-instance safety net.
 Dry-run by default; only tears down with --yes. The shared compute pool
 (MLOPS_CPU_M_POOL) is left intact unless --drop-pool is passed.
 
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python setup/99_reset_teardown.py          # dry run
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python setup/99_reset_teardown.py --yes    # execute
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/99_reset_teardown.py          # dry run
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python setup/99_reset_teardown.py --yes    # execute
 """
 
 import argparse

@@ -28,7 +28,7 @@ in anything on screen.
 All [TERM] commands assume:
 ```bash
 cd "RT Feature Store - Fraud Detection"
-export SNOWFLAKE_CONNECTION_NAME=demo156_keypair
+export SNOWFLAKE_CONNECTION_NAME=<your-connection>
 ```
 
 > **During the live demo you never touch a terminal or Cortex Code.** Every live step is
@@ -138,7 +138,7 @@ FROM ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS;   -- ~0.91 vs ~0.13
 |---------|-------|-----|
 | Promotion ML Job takes minutes to start | Compute-pool / image cold start | Run `demo_kickoff.py` (`--warm-image`) beforehand |
 | "compute pool busy (1/1 nodes)" | `MLOPS_CPU_M_POOL` is single-node; back-to-back jobs serialize | Only run one promotion at a time; or bump pool `MAX_NODES=2` before the demo |
-| GitHub Action can't auth | Missing `production` env or `SNOWFLAKE_ACCOUNT` variable (pipeline auth is keyless OIDC — no credential secret) | Add the `production` environment + a `SNOWFLAKE_ACCOUNT` **variable** in repo settings; SUBJECT in `SVC_ML_DEPLOY` must match `repo:sfc-gh-tporter/rt-feature-store-fraud-demo:environment:production` |
+| GitHub Action can't auth | Missing `production` env or `SNOWFLAKE_ACCOUNT` variable (pipeline auth is keyless OIDC — no credential secret) | Add the `production` environment + a `SNOWFLAKE_ACCOUNT` **variable** in repo settings; SUBJECT in `SVC_ML_DEPLOY` must match `repo:<your-org>/<your-repo>:environment:production` |
 | Model load fails "owner only" | `mv.load()` needs the owner (dev) role as *primary* | Already handled — `promote_model.py` switches to `ML_DEV_ROLE` for load, back to `ML_DEPLOY_SVC` to write |
 | "version V2 already existed" | Re-promoting an existing prod version | Already handled — promotion skips re-log if the prod version exists |
 | Experiment run won't resume | A run name already ended | Already handled — scripts `delete_run` before `start_run` |

@@ -11,7 +11,7 @@ Env-aware and promotable:
     on promotion the SAME transform runs in prod writing the prod ABT.
 
 Run standalone to (re)build the ABT for the current ML_ENV:
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair ML_ENV=dev  .venv/bin/python transforms/base_features.py
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> ML_ENV=dev  .venv/bin/python transforms/base_features.py
 """
 
 import os

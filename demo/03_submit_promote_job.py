@@ -10,7 +10,7 @@ the repo (no .venv / source-data / pat/). scikit-learn is pinned so the job runt
 matches the version the model was trained with (clean mv.load()).
 
   # local (as an admin holding ML_DEPLOY_SVC):
-  SNOWFLAKE_CONNECTION_NAME=demo156_keypair .venv/bin/python mlops/submit_promote_job.py --dev-version V2
+  SNOWFLAKE_CONNECTION_NAME=<your-connection> .venv/bin/python mlops/submit_promote_job.py --dev-version V2
   # CI: authenticated as SVC_ML_DEPLOY via OIDC (role ML_DEPLOY_SVC)
 """
 
