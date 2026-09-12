@@ -6,3 +6,10 @@ snowflake-snowpark-python
 scikit-learn==1.7.2
 pandas==2.3.3
 numpy==2.2.6
+
+# Local key-pair (JWT) auth in snowpark_session.py; usually transitive via the
+# connector, listed explicitly so a clean env has it.
+cryptography
+
+# Only used by the optional online/real-time notebook (demo/optional_online_realtime.ipynb).
+requests
