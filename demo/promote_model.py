@@ -87,6 +87,10 @@ def promote_model(session, dev_version):
         prod_reg.log_model(
             model=loaded, model_name=C.MODEL_NAME, version_name=ver,
             signatures=signatures, metrics=metrics,
+            # Newer registry clients (>=1.51) default pip-based models to SPCS-only,
+            # which breaks the warehouse native-SQL PREDICT_PROBA batch scoring.
+            # Force both so the prod model stays warehouse-runnable.
+            target_platforms=["WAREHOUSE", "SNOWPARK_CONTAINER_SERVICES"],
             comment=f"Promoted from dev {C.MODEL_NAME}/{ver} via CI (service account).")
 
     session.sql(f"USE ROLE {C.DEPLOY_ROLE}").collect()
