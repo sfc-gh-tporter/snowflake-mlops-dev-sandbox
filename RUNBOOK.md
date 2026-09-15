@@ -343,6 +343,87 @@ follow the same pattern in a hardened build.
 
 ---
 
+## 10. Guided UI walkthrough (Snowsight) — make the platform visible
+
+The live *typing* is thin (two notebooks + a promotion), but the *artifacts* are rich and mostly
+invisible. The demo lands when you **open the UI and show what was built** — before, between, and
+after the notebooks. This turns "we ran two notebooks" into "look at this whole governed ML
+platform." Nav labels are under the Snowsight left nav; they can vary slightly by version.
+
+### 45-minute run-of-show (interleave notebooks + UI tours)
+| Time | Act | What you do | Surface |
+|------|-----|-------------|---------|
+| 0:00–0:06 | **0. Environment tour** | Set the stage: show the platform *before* touching it | Databases & schemas; quick peek at Features / Models / Experiments |
+| 0:06–0:10 | **1. Governance boundary** | Notebook 01 boundary cell: read prod OK, write prod BLOCKED | Databases (dev vs prod) |
+| 0:10–0:15 | **2. Explore + build ABT** | Notebook 01 rest: EDA + the inline transform → dev ABT | Data » dev ABT table |
+| 0:15–0:21 | **3. Baseline (pre-built V1)** | Tour what setup produced | Feature Store, Model Registry (V1), Experiments (TRAIN_V1) |
+| 0:21–0:29 | **4. The loop** | Notebook 02: add ACCOUNT_RISK, retrain V2, compare | Feature Store (new FV), Registry (V2), Experiments (V1 vs V2) |
+| 0:29–0:37 | **5. Promotion gate** | Trigger + approve in GitHub; watch the job | GitHub Actions, then Query History |
+| 0:37–0:41 | **5b. Prod result** | Show the model + predictions landed in prod | Model Registry (prod), Predictions + chart, Task |
+| 0:41–0:45 | **6. Recap + Q&A** | Restate boundary / two-DB / keyless pipeline; objections | (section 9) |
+
+### Databases & schemas — the dev/prod split *(Act 0)*
+- **Where:** Data » Databases. Expand `ML_FRAUD_PRODUCTION` and `ML_FRAUD_DEV_SANDBOX`.
+- **Show:** two databases in one account; prod has RAW / CURATED / FEATURE_STORE / ML / ANALYTICS,
+  dev has its own CURATED / FEATURE_STORE / ML / EXPERIMENTS.
+- **Say:** "One account, two databases. The data scientist owns the sandbox and can read all of
+  prod — but as we'll see, cannot write it. The boundary is the whole point."
+
+### Feature Store — features as governed objects *(Act 3 preview, Act 4 payoff)*
+- **Where:** AI & ML » Features. Select the feature store schema.
+- **Show (Act 3):** the `ACCOUNT` entity and `ACCOUNT_PROFILE` feature view — its definition,
+  refresh schedule, and the columns it serves. **Show (Act 4):** after retrain, the newly
+  registered `ACCOUNT_RISK` view appears alongside it.
+- **Say:** "Features are defined once here and reused for training and scoring — and the same
+  definitions are promoted to prod, so dev and prod build features identically."
+
+### Model Registry — versions, metrics, governance *(Act 3 + Act 4 + Act 5b)*
+- **Where:** AI & ML » Models » `AML_FRAUD_GBM`.
+- **Show (Act 3):** in the **dev** registry, version `V1` with its metrics (PR-AUC, ROC-AUC,
+  recall@1%) and functions (`PREDICT_PROBA`). **Show (Act 4):** `V2` appears, set as default;
+  compare its metrics to V1. **Show (Act 5b):** switch to the **prod** registry — `V2` is now
+  there, promoted, default.
+- **Say:** "The registry is the system of record for models — versioned, with metrics and lineage.
+  Dev and prod are separate registries; promotion is a governed registry-to-registry move."
+
+### Experiments — the tracked before/after *(Act 3 + Act 4)*
+- **Where:** AI & ML » Experiments » `AML_FRAUD_TRAINING`.
+- **Show:** runs `TRAIN_V1` and (after Act 4) `TRAIN_V2`; open the comparison to see params and
+  metrics side by side.
+- **Say:** "Every training run is logged — parameters and metrics — so the V1→V2 improvement is an
+  auditable record, not a claim. This is the reproducibility layer."
+
+### GitHub Actions + Query History — the deploy, made concrete *(Act 5)*
+- **Where (GitHub):** repo » Actions » "Promote model to production" » the run.
+- **Show:** the **approval gate** (production environment), the **keyless OIDC** auth step (no
+  secrets stored), and the **ML Job** submit + logs (`PREDICTIONS populated: … rows`).
+- **Where (Snowsight):** Monitoring » Query History (filter to recent).
+- **Show:** the actual server-side statements the job ran — the model log and the native-SQL
+  `<model>!PREDICT_PROBA(...)` batch-scoring `CREATE TABLE`.
+- **Say:** "No human hand-deploys. GitHub authenticates with a short-lived token, an approver signs
+  off, and the work runs server-side as the service account. Here's the exact SQL it ran."
+
+### Tasks & Predictions — the recurring output *(Act 5b)*
+- **Where (task):** Monitoring » Task History, or Data » `ML_FRAUD_PRODUCTION` » ANALYTICS »
+  Tasks » `SCORE_BATCH_TASK`.
+- **Show:** the scheduled daily task (created suspended), its definition (the scoring SQL).
+- **Where (predictions):** open a worksheet and
+  `SELECT * FROM ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS LIMIT 100;` then use the **Chart**
+  toggle to plot `FRAUD_SCORE`, or run the fraud-vs-normal average to show separation
+  (fraud ≈ 0.9 vs normal ≈ 0.13).
+- **Say:** "Promotion runs once; the daily task keeps scoring with no human in the loop. Here are
+  the predictions downstream systems consume — and the model clearly separates fraud from normal."
+
+### Presenter tips to fill the time without filler
+- **Narrate the pre-built as if walking a new hire through the platform** — the setup did real
+  work; the UI tour is where you take credit for it.
+- **Open the UI right after the cell that produced the object** ("I just registered V2 — let's go
+  see it") so cause and effect are obvious.
+- **End on the predictions + governance recap**, not on the last notebook cell, so the closing
+  beat is "governed platform → business output," not "a script finished."
+
+---
+
 ## Appendix B — Optional online / real-time branch
 
 **Only for showing real-time serving. It costs money (Postgres online store bills 24/7) and
