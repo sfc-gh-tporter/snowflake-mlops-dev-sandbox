@@ -258,6 +258,91 @@ predictions `ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS`.
 
 ---
 
+## 9. Objection handling — why things are pre-committed / pre-baked (the automation story)
+
+This section exists so you can confidently answer the sharp MLOps questions ("isn't this
+too manual?", "features are code — where's the PR?", "why pull from the registry?"). Read
+it before presenting to an engineering audience.
+
+### The core framing (lead with this)
+> "Two different things flow through two different systems: **code** flows through Git
+> (branch → PR → review → merge); **models** flow through the **Model Registry** as versioned
+> artifacts. This pipeline promotes a *model*, so it pulls the artifact from the registry — it
+> does not push a binary through Git."
+
+That reframes every "why isn't X in Git" question: because X is a model artifact, and model
+binaries don't belong in Git — the registry is their system of record (versioned, governed,
+with metrics and lineage).
+
+### The two paths (say this explicitly)
+- **Code changes** — a new feature definition, the transform, training or deployment logic →
+  **branch → PR → review → merge to `main`**. Standard software CI. This is where a new feature
+  belongs.
+- **Model changes** — same code, retrained on new data producing a better version → a new
+  **registry version**, promoted dev→prod by the pipeline you kick off. No Git involved.
+
+The demo shows the **model/registry path + the governance gate** live, because that's the part
+people haven't seen; the code/PR path is normal CI.
+
+### "Features are code — isn't that being skipped?" (the honest answer)
+Not skipped — **pre-committed**. The prod feature definitions (`ACCOUNT_PROFILE`,
+`ACCOUNT_RISK`) live in committed code in `demo/promote_model.py` (`register_prod_fs()`), and the
+Actions pipeline checks that file out of `main` and runs it. So the feature's path to prod *is*
+code → Git → pipeline.
+
+What the demo simplifies: the notebook adds `ACCOUNT_RISK` **interactively** to show the
+iteration, and the matching prod definition is already committed — so there are two copies of the
+feature SQL (dev notebook + `promote_model.py`) that we keep in sync manually. The PR/review of
+that feature code is pre-baked rather than performed live.
+> "The feature reached production as code the pipeline pulled from `main`. On stage I add it in
+> the notebook to show the loop; the reviewed code change is pre-committed."
+
+### Why the promotion trigger is manual (`workflow_dispatch`)
+It's a deliberate choice so the **gate is visible** on stage instead of firing invisibly. Wiring
+the trigger is the easy, last-mile change; in production you'd pick one of:
+- **`on: push` to `main`** — a merged PR auto-kicks the promotion.
+- **A registry event** — when a DS tags a version with an alias like `Production-Candidate`, a
+  scheduled check fires the workflow via `repository_dispatch`.
+- **A validation gate in the job** — auto-compare candidate vs current prod metrics, abort if worse.
+
+None of that changes the security model — it only changes what pulls the trigger.
+
+### What IS automated / enforced (point here when pressed on "not automated enough")
+- **No human can hand-deploy** — the dev role is blocked from writing prod (proven live in Act 1).
+- **Keyless identity** — GitHub authenticates via OIDC/WIF; no stored key or password to leak.
+- **Required approval** — the `production` environment gate needs a human sign-off.
+- **Runs server-side as the service account** (`ML_DEPLOY_SVC`) on Snowflake compute, not a laptop.
+> "The automation that matters for governance — who can deploy, how they authenticate, that
+> someone approved it — is fully enforced. That's the hard part, and it's built."
+
+### Why not perform the code PR/merge live? (the TLDR)
+Three reasons it's pre-baked:
+1. **It's generic.** PR → review → merge is vanilla software CI; the Snowflake-differentiated
+   value (feature store, registry, keyless promotion, RBAC gate, ML Job) is what earns stage time.
+2. **Live-failure risk.** A live PR + CI adds minutes and things that break on stage (merge
+   conflicts, CI flakes, the OIDC `503`). Pre-baking makes the demo deterministic.
+3. **Stage time is scarce** — minutes in GitHub's PR UI aren't spent on the money moment.
+
+Audience call: for **data/exec leadership**, pre-bake and keep it tight. For **MLOps/platform
+engineers**, consider doing a *minimal* live code change → PR → merge, since that's the exact
+objection they'll raise (their language, their concern).
+
+### How you'd harden it (the "production version" answer)
+Factor the feature (and transform) definitions into **one shared, version-controlled module** that
+both the dev notebook and `promote_model.py` import. Then adding a feature is a real
+**PR → review → merge**, the notebook imports the identical definition, and dev/prod can't drift.
+That's exactly why the ABT transform lives in `transforms/base_features.py`; we inlined it in the
+notebook only for demo visibility — the module remains the prod source of truth. Features would
+follow the same pattern in a hardened build.
+
+### Drop-in one-liners
+- "Code flows through Git; the model is an artifact and flows through the registry."
+- "The feature code rides through Git in the committed promotion code; the PR step is pre-baked, not absent."
+- "The trigger is manual so you can see the gate — wiring `on: push` or a registry event is one line of YAML."
+- "It's not less automated — it's automating the right layer: the deploy mechanism and governance gate are enforced; the trigger is a config choice."
+
+---
+
 ## Appendix B — Optional online / real-time branch
 
 **Only for showing real-time serving. It costs money (Postgres online store bills 24/7) and
