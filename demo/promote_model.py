@@ -91,6 +91,10 @@ def promote_model(session, dev_version):
             # which breaks the warehouse native-SQL PREDICT_PROBA batch scoring.
             # Force both so the prod model stays warehouse-runnable.
             target_platforms=["WAREHOUSE", "SNOWPARK_CONTAINER_SERVICES"],
+            # Resolve the model's deps from Snowflake's conda channel instead of a
+            # pip artifact repository at query time. The pip-in-warehouse UDF path
+            # was throwing an internal error (370001) during scoring; conda avoids it.
+            conda_dependencies=["scikit-learn==1.7.2"],
             comment=f"Promoted from dev {C.MODEL_NAME}/{ver} via CI (service account).")
 
     session.sql(f"USE ROLE {C.DEPLOY_ROLE}").collect()

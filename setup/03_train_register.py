@@ -132,6 +132,9 @@ def main():
     mv = reg.log_model(
         model=model, model_name=C.MODEL_NAME, version_name=args.version,
         sample_input_data=X[te].head(20),
+        # Conda deps so warehouse PREDICT_PROBA resolves from the Snowflake conda
+        # channel (not a pip env at query time), avoiding the 370001 UDF fault.
+        conda_dependencies=["scikit-learn==1.7.2"],
         comment="AML fraud GBM (profile + request-context, monotonic, imbalance-aware).",
         metrics=metrics)
     reg.get_model(C.MODEL_NAME).default = args.version
