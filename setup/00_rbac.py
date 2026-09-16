@@ -145,6 +145,13 @@ def main():
         COMMENT = 'Restrict SVC_ML_DEPLOY to GitHub OIDC workload identity'""")
     run(s, f"ALTER USER {C.DEPLOY_USER} SET AUTHENTICATION POLICY {pol}")
 
+    # Cloud CI runners (GitHub Actions) connect from dynamic IPs. If the account
+    # enforces an IP/VPN network policy, exempt this WIF-only user with a
+    # permissive user-level policy (overrides the account policy for this user
+    # only). Safe: it can authenticate ONLY via OIDC bound to OIDC_SUBJECT.
+    run(s, f"CREATE NETWORK POLICY IF NOT EXISTS {C.DEPLOY_NETWORK_POLICY} ALLOWED_IP_LIST = ('0.0.0.0/0')")
+    run(s, f"ALTER USER {C.DEPLOY_USER} SET NETWORK_POLICY = {C.DEPLOY_NETWORK_POLICY}")
+
     print("\n[9] Verify the governance boundary as ML_DEV_ROLE")
     run(s, f"USE ROLE {C.DEV_ROLE}")
     run(s, f"USE WAREHOUSE {C.WAREHOUSE}")

@@ -138,7 +138,9 @@ FROM ML_FRAUD_PRODUCTION.ANALYTICS.PREDICTIONS;   -- ~0.91 vs ~0.13
 |---------|-------|-----|
 | Promotion ML Job takes minutes to start | Compute-pool / image cold start | Run `demo_kickoff.py` (`--warm-image`) beforehand |
 | "compute pool busy (1/1 nodes)" | `MLOPS_CPU_M_POOL` is single-node; back-to-back jobs serialize | Only run one promotion at a time; or bump pool `MAX_NODES=2` before the demo |
-| GitHub Action can't auth | Missing `production` env or `SNOWFLAKE_ACCOUNT` variable (pipeline auth is keyless OIDC — no credential secret) | Add the `production` environment + a `SNOWFLAKE_ACCOUNT` **variable** in repo settings; SUBJECT in `SVC_ML_DEPLOY` must match `repo:<your-org>/<your-repo>:environment:production` |
+| GitHub Action can't auth (JWT subject/issuer not recognized) | The `SVC_ML_DEPLOY` OIDC subject doesn't match the token's `sub`, or `production` env / `SNOWFLAKE_ACCOUNT` variable is missing | Add the `production` environment + `SNOWFLAKE_ACCOUNT` / `SNOWFLAKE_WAREHOUSE` **variables**. Subject must equal the JWT `sub` exactly — **this org issues immutable-ID subjects** `repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:production`, not the name-based form. Set `OIDC_SUBJECT` to that value when running `00_rbac.py` (this account: `repo:sfc-gh-tporter@69521549/snowflake-mlops-dev-sandbox@1277090492:environment:production`) |
+| GitHub Action IP blocked (390422) | Account VPN/IP network policy rejects the CI runner's dynamic IP | `SVC_ML_DEPLOY` gets a user-level allow-all policy (`ML_DEPLOY_WIF_NETPOLICY`) that overrides the account policy for just this WIF user — `00_rbac.py` creates and assigns it. Safe: the user can only auth via OIDC bound to the repo subject |
+| ML Job fails with internal error (370001 / "incident") | Transient Snowflake server-side execution error — **not** your code/config (it got past auth, network, and started running SQL) | Re-run the workflow; it usually clears. Off-stage fallback that bypasses the ML Job entirely: `python demo/promote_model.py --dev-version V2` |
 | Model load fails "owner only" | `mv.load()` needs the owner (dev) role as *primary* | Already handled — `promote_model.py` switches to `ML_DEV_ROLE` for load, back to `ML_DEPLOY_SVC` to write |
 | "version V2 already existed" | Re-promoting an existing prod version | Already handled — promotion skips re-log if the prod version exists |
 | Experiment run won't resume | A run name already ended | Already handled — scripts `delete_run` before `start_run` |
@@ -340,6 +342,29 @@ follow the same pattern in a hardened build.
 - "The feature code rides through Git in the committed promotion code; the PR step is pre-baked, not absent."
 - "The trigger is manual so you can see the gate — wiring `on: push` or a registry event is one line of YAML."
 - "It's not less automated — it's automating the right layer: the deploy mechanism and governance gate are enforced; the trigger is a config choice."
+
+### "How much of this is pre-built? Could I actually use it?" (reference implementation)
+
+The worry: it looks like a lot is pre-baked (the transform, `promote_model.py`, RBAC, the pipeline) and the audience thinks "cool, but I could never run this in my pipeline." Reframe it: **a demo is a reference implementation, not a greenfield build — pre-built plumbing proves the pattern is real and repeatable, it's not a rigged trick.**
+
+Split everything into two buckets and say it out loud:
+- **Built once per project (the platform investment):** two-DB topology, RBAC boundary, OIDC identity, `transforms/base_features.py`, `promote_model.py`, the workflow YAML. A team writes these once and rarely touches them.
+- **The repeating loop (weekly DS work):** explore -> add/adjust a feature -> retrain -> compare -> PR/promote.
+
+You're demoing the **steady state**, not day zero. Nobody hand-writes Terraform live to prove a deploy is real.
+
+- **Set the frame up front (Act 0):** "Everything here is in a public repo you can read and fork - the transform, the promotion job, the RBAC, the pipeline. I pre-built the plumbing a team sets up once, so we spend our time on the loop a data scientist runs constantly and the governance that makes it safe. Nothing is hidden."
+- **Adoption pitch (kills "I couldn't use this"):** "Point it at your account, swap in your data and features, keep the RBAC + OIDC + ML-Job pattern as-is. The pattern transfers directly; only the model-specific code changes. It's a public repo - fork it."
+- **You DO show an end:** a dev change -> gated keyless deploy -> model live in prod -> predictions landing. That is the ending; what's compressed is authoring the scaffolding (once) and the live PR trigger (audience-dependent).
+- **Name what's not production-grade (reads as expertise):** a metric gate on promotion, an automated trigger, features as a shared module. "Those are the next hardening steps - the pattern already supports them."
+
+### "What if I have 10 models in prod - a script and job each?"
+
+No. **One parameterized promotion engine + per-model config**, not N scripts.
+- `promote_model.py` hardcodes one model for readability; the logic is generic ("load a dev version -> log to prod -> register its feature views -> set up scoring"). It already takes `--dev-version`; add `--model` and a manifest and it promotes any model.
+- **Shared once:** the promotion mechanism, RBAC, OIDC identity, workflow, compute pool. **Per-model as config (not code):** model name, feature set, scoring target, metric thresholds, schedule - a `models.yaml` or a control table with one entry per model.
+- **Features don't multiply either:** the feature store means 10 models *share* features rather than each redefining them.
+- One-liner: "You don't write a script per model - you build one parameterized job and a manifest with an entry per model. The 11th model is a config entry and a PR, not a new pipeline."
 
 ---
 

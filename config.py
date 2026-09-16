@@ -38,6 +38,11 @@ DEV_ROLE = "ML_DEV_ROLE"           # data scientist: full CRUD in dev, read prod
 DEPLOY_ROLE = "ML_DEPLOY_SVC"      # only role that can write prod
 DEPLOY_USER = "SVC_ML_DEPLOY"      # OIDC/WIF service user used by GitHub Actions
 AUTH_POLICY = "ML_DEPLOY_WIF_POLICY"
+# Permissive network policy for the WIF deploy user. Cloud CI runners connect
+# from dynamic IPs, so if the account enforces an IP/VPN network policy this
+# user must be exempt. Safe: it can ONLY authenticate via OIDC bound to the
+# repo subject below, so IP filtering adds little.
+DEPLOY_NETWORK_POLICY = "ML_DEPLOY_WIF_NETPOLICY"
 
 # Repo that owns the keyless deploy identity. Auto-detects the fork in CI
 # (GitHub sets GITHUB_REPOSITORY); set GITHUB_REPO locally before running
@@ -49,7 +54,16 @@ GITHUB_REPO = (
 )
 GITHUB_DEPLOY_ENV = "production"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
-OIDC_SUBJECT = f"repo:{GITHUB_REPO}:environment:{GITHUB_DEPLOY_ENV}"
+# GitHub's OIDC subject. Default is the name-based sub. Some orgs configure OIDC
+# to use immutable IDs, so the JWT sub is instead:
+#   repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:<env>
+# If your org does that, set OIDC_SUBJECT to the exact value the token carries or
+# the pipeline fails auth with "subject/issuer claims were not recognized".
+# (This account/repo: repo:sfc-gh-tporter@69521549/snowflake-mlops-dev-sandbox@1277090492:environment:production)
+OIDC_SUBJECT = (
+    os.environ.get("OIDC_SUBJECT")
+    or f"repo:{GITHUB_REPO}:environment:{GITHUB_DEPLOY_ENV}"
+)
 
 # --- Entity / features -------------------------------------------------------
 ENTITY_NAME = "ACCOUNT"
